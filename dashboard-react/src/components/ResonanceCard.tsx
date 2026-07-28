@@ -30,8 +30,8 @@ export function ResonanceCard({ r, onExpand }: ResonanceCardProps) {
   else if (score <= -1)
     summary = (
       <>
-        🌱 Your resonance <b>leans deeper</b> right now — totally workable! This
-        is usually the biggest lever after pitch.
+        🌱 Your resonance <b>leans deeper</b> right now — a good place to put
+        your attention, since it's usually the most responsive lever after pitch.
       </>
     );
   else
@@ -74,6 +74,23 @@ export function ResonanceCard({ r, onExpand }: ResonanceCardProps) {
       />
       <div className="res-summary">
         <Note id="note.resonance">{summary}</Note>
+      </div>
+      {/* The bands are group averages from a small cis reference set, so on their
+          own they read as a target. They aren't one: formants are set partly by
+          how you shape the vocal tract and partly by how long it is, and the
+          second part isn't something practice moves. Stating that plainly — with
+          this project's OWN reference spread as the evidence — turns a verdict
+          back into context, and heads off the failure mode where a user reads a
+          settled number as insufficient effort and pushes into strain. */}
+      <div className="res-context">
+        🌿 <b>Where the bands come from.</b> They sit at the group averages of the
+        21 reference voices, so plenty of real voices land outside their own band
+        — 6 of the 17 women here read <i>neutral</i> or <i>deeper</i> on F2, and 5
+        of 17 on F3. Resonance is partly something you shape and partly the size
+        of what you're shaping, so if this number finds a level and stays there,
+        that's information — not something to force. It's one cue of several:
+        melody, weight, and how you land phrase endings are all still doing real
+        work. 💗
       </div>
       <div className="res-f1">
         ℹ️ <b>F1 = {fmt(f.f1_hz)} Hz.</b> This one mostly reflects which{" "}
