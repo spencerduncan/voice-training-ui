@@ -513,6 +513,36 @@ a.legend-link {
   color: #b06a96;
 }
 
+/* ---- gentle voice-care aside (permanent, sits above the footer) ----
+   Soft lavender, same quiet register as .res-f1 / .gloss-note. Never red,
+   never blue (blue means masculine register only). */
+.care-note {
+  margin-top: 34px;
+  background: var(--lav-bg);
+  border: 1.5px solid #e9e1ff;
+  border-radius: 18px;
+  padding: 14px 16px 15px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+.care-note h3 {
+  margin: 0 0 7px;
+  font-size: 13.5px;
+  color: #7a5a92;
+}
+.care-note ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 5px;
+}
+.care-note li {
+  line-height: 1.55;
+}
+.care-note b {
+  color: #7a5a92;
+}
+
 /* ---- recording switcher ---- */
 .picker {
   display: flex;

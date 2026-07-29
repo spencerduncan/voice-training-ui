@@ -18,6 +18,7 @@ import { ResonanceCard } from "./components/ResonanceCard";
 import { LineChart, type Point, type ChartBand } from "./components/LineChart";
 import { RecordingCard } from "./components/RecordingCard";
 import { CheatSheet } from "./components/CheatSheet";
+import { VoiceCareNote } from "./components/VoiceCareNote";
 import { RegisterSection } from "./components/RegisterSection";
 import {
   AnnotationsProvider,
@@ -382,6 +383,8 @@ export function App() {
         </h2>
         <CheatSheet />
       </section>
+
+      <VoiceCareNote />
 
       <footer>
         made with 🩷 &middot; numbers are a compass, not a judge &middot; your ears
