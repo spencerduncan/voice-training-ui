@@ -31,13 +31,15 @@ export function CheatSheet() {
         </div>
 
         <div className="gloss-item">
-          <h4>🌊 Pitch range &amp; variability</h4>
+          <h4>🌊 Pitch range &amp; melody</h4>
           <p>
             How far your pitch travels (range) and how much it dances around
-            (variability/SD). Flat = monotone; lively = expressive.
+            (melody). Melody is read in <b>semitones</b>, not Hz: the same tune
+            measures bigger in Hz the higher a voice sits, so the Hz number
+            can't tell melody apart from simply speaking higher.
           </p>
           <div className="guide">
-            variability: flat &lt;20 · <b>natural 20–40</b> · expressive 40+ Hz
+            melody: flat &lt;2 · <b>natural 2–3.5</b> · lively 3.5+ st
           </div>
           <div className="tip">
             💗 Feminine speech tends to be more melodic. Read with feeling — let

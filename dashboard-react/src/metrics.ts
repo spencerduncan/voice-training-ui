@@ -7,7 +7,7 @@ import {
   type Zone,
   PITCH_ZONES,
   LOUD_ZONES,
-  SD_ZONES,
+  MELODY_ZONES,
   HNR_ZONES,
   JITTER_ZONES,
   WEIGHT_ZONES,
@@ -18,7 +18,7 @@ import {
 export type MetricKey =
   | "pitch"
   | "loudness"
-  | "sd"
+  | "melody"
   | "hnr"
   | "jitter"
   | "weight"
@@ -68,17 +68,22 @@ export const METRICS: Record<MetricKey, MetricDef> = {
     showRefs: false,
     blurb: "louder = more present · this one isn't gendered, just your takes here",
   },
-  sd: {
-    key: "sd",
-    title: "Pitch variability",
-    unit: "Hz",
-    zones: SD_ZONES,
+  // Melody is read in SEMITONES, not Hz: Hz SD scales with mean pitch, so the
+  // same tune measures bigger the higher the voice sits (see the note above
+  // SD_ZONES' removal in zones.ts). The reference voices have no semitone SD in
+  // reference.json — only sd_hz — so there's nothing honest to plot for them
+  // here; the scale shows her own takes.
+  melody: {
+    key: "melody",
+    title: "Melody",
+    unit: "st",
+    zones: MELODY_ZONES,
     lo: 0,
-    hi: 60,
-    take: (r) => r.pitch.sd_hz,
-    ref: (v) => v.pitch.sd_hz,
+    hi: 7,
+    take: (r) => r.register?.in_register_semitones_sd ?? null,
+    ref: () => null,
     showRefs: false,
-    blurb: "how much your melody moves · ~20–40 Hz is lively, natural speech",
+    blurb: "how much your pitch moves, in semitones · the ear's unit, so it doesn't drift with how high you sit",
   },
   hnr: {
     key: "hnr",
