@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Recording, ReferenceVoice } from "./types";
 import {
   PITCH_ZONES,
+  F2_ZONES,
   LOUD_ZONES,
   SD_ZONES,
   HNR_ZONES,
@@ -335,8 +336,7 @@ export function App() {
             cap="brightness / vocal-tract size cue"
             color="#d99a4e"
             data={mk((r) => r.formants.f2_hz)}
-            band={[1850, 2400]}
-            bandColor="#c9b6ff"
+            bands={F2_ZONES}
           />
           <ChartCard
             h="Weight"
@@ -380,7 +380,7 @@ export function App() {
         <h2 className="section-title">
           <BulbIcon /> What do these mean?
         </h2>
-        <CheatSheet />
+        <CheatSheet references={references} />
       </section>
 
       <footer>
