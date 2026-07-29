@@ -16,6 +16,8 @@ export { RegisterSection } from "./components/RegisterSection";
 export { InsightCard } from "./annotations/lib/InsightCard";
 export { Drill } from "./annotations/lib/Drill";
 export { PhraseEndingStrip } from "./annotations/lib/PhraseEndingStrip";
+export { StatCompare } from "./annotations/lib/StatCompare";
+export { MelodyArc } from "./annotations/lib/MelodyArc";
 
 // Context provider that register/annotation-aware components read from
 // (exported so previews can wrap components that call useAnnotations / <Note>).

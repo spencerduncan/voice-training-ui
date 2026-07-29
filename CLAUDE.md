@@ -256,8 +256,9 @@ the reference ticks above.
   frame (which folds in consonants/glides/mistracks and barely separated the sexes — old F2
   women 1639 vs men 1566), we take the **median over vowel nuclei** — frames that are voiced
   AND loud (within 10 dB of peak) AND have a plausible vowel F1 (~250–1000 Hz) AND are
-  formant-stable. On VCTK this separates F2 cleanly (women ~1434 vs men ~1281, no overlap in
-  sample) and F3 better but still overlapping (~2708 vs ~2523). See `F2_ZONES`/`F3_ZONES`.
+  formant-stable. On VCTK this separates F2 much better than the old frame-average (women
+  ~1450 vs men ~1281) though the ranges still **overlap at the edges** (female min 1280 vs
+  male max 1325), and F3 similarly (~2742 vs ~2523). See `F2_ZONES`/`F3_ZONES`.
 - **Weight (vocal heaviness via source spectral tilt)** — one of the *big three* fem cues,
   alongside pitch and resonance. It's the voice **source** (the vocal folds themselves) vs.
   resonance, which is the **filter** (the vocal tract). Measured as **corrected H1\*–A3\***
@@ -324,7 +325,7 @@ Two slot kinds (`src/annotations/AnnotationsProvider.tsx`):
 - **`<Region id>`** — freeform insertion point; renders nothing unless a recording fills it
   (the insights region passes an `empty` placeholder).
 
-Available slots today: notes `note.pitch`, `note.loudness`, `note.resonance`,
+Available slots today: notes `note.pitch`, `note.loudness`, `note.weight`, `note.resonance`,
 `note.register`; regions `region.top`, `region.afterLatest`, `region.afterResonance`,
 `region.afterRegister`, `region.insights`, `region.bottom`. Add more `<Note>`/`<Region>`
 in the layout if a take needs to speak somewhere new.
