@@ -54,7 +54,7 @@ export const METRICS: Record<MetricKey, MetricDef> = {
     take: (r) => r.pitch.mean_hz,
     ref: (v) => v.pitch.mean_hz,
     showRefs: true,
-    blurb: "where you sit vs. real men's & women's voices · 165 Hz+ reads feminine",
+    blurb: "where you sit vs. real men's & women's voices · 165 Hz is the top of the in-between range, not a finish line — one of the women here sits at 164 Hz",
   },
   loudness: {
     key: "loudness",

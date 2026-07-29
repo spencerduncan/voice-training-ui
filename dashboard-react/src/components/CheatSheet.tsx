@@ -18,15 +18,26 @@ export function CheatSheet() {
         <div className="gloss-item">
           <h4>🎵 Pitch (avg F0)</h4>
           <p>
-            The average highness of your voice — the single biggest cue people
-            hear.
+            The average highness of your voice — the loudest single cue, though
+            never a solo act. Ears read <b>pitch and resonance together</b>: in
+            listening studies, moving one without the other usually didn't change
+            how a voice was heard, while moving both usually did. So 165 Hz is
+            where the in-between range <i>tops out</i> and resonance starts doing
+            the deciding — not a line you cross.
           </p>
           <div className="guide">
-            masc &lt;145 · neutral 145–165 · <b>feminine 165 Hz+</b>
+            masc &lt;145 · neutral 145–165 · <b>fem 165 Hz+</b>
           </div>
           <div className="tip">
             💗 To raise it: think "light &amp; forward," let your voice float up
             a touch. Don't force it from the throat.
+          </div>
+          <div className="tip">
+            🌸 Worth keeping in your pocket: <b>p294</b>, one of the reference
+            women in this app, speaks at <b>164 Hz</b> with an F2 of{" "}
+            <b>1396 Hz</b> — she reads <i>neutral</i> on both of these gauges,
+            and she's a cis woman who was just reading sentences in a studio.
+            Nothing about her voice needed fixing. Compasses, not judges. 💗
           </div>
         </div>
 
