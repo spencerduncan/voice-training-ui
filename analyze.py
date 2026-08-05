@@ -28,6 +28,7 @@ import math
 import shutil
 import statistics
 import subprocess
+import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -35,6 +36,36 @@ from pathlib import Path
 import numpy as np
 import parselmouth
 from parselmouth.praat import call
+
+
+def _use_utf8_console() -> None:
+    """Let this script's emoji survive a non-UTF-8 console.
+
+    Every status line here is deliberately cozy (🎧 ✅ 🎚️ 🌸), but a default
+    Windows console is cp1252, and Python encodes stdout with the console's
+    codepage — so the very first `print` died with UnicodeEncodeError before
+    any analysis output reached the user:
+
+        UnicodeEncodeError: 'charmap' codec can't encode character '\\U0001f3a7'
+
+    Re-encoding the streams as UTF-8 fixes it without stripping the emoji.
+    `errors="replace"` means a console that genuinely can't render a glyph
+    shows a placeholder instead of taking the whole run down with it.
+
+    Called at import, not from main(), because scripts/build_reference_set.py
+    imports this module and prints emoji of its own.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:  # not a TextIOWrapper (redirected/wrapped)
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):  # already detached, or read-only stream
+            pass
+
+
+_use_utf8_console()
 
 ROOT = Path(__file__).resolve().parent
 RECORDINGS_JSON = ROOT / "recordings.json"  # source of truth
