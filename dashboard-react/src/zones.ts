@@ -119,8 +119,19 @@ export const MELODY_ZONES: Zone[] = [
   { from: 3.5, to: 7, color: FEM, name: "lively" },
 ];
 
+// Out-of-range values are handled ASYMMETRICALLY on purpose — please don't
+// "simplify" this back to a single fallback:
+//   BELOW the first band's floor → the FIRST zone. The tables start at 100 Hz
+//     (pitch) / 1100 Hz (F2) / 2100 Hz (F3), and anything under those floors is
+//     either the deepest end of the scale or a formant mistrack. A plain
+//     `.find() || last` sends those to the LAST zone, which is pink FEM in all
+//     three tables — i.e. the reading would say "bright" at exactly the moment
+//     it's most masc, or most broken. Landing on the first zone is honest.
+//   ABOVE the last band's ceiling → the LAST zone. That end genuinely is past
+//     the goal, so clamping upward is correct. Keep that behaviour.
 export function zoneOf(zones: Zone[], v: number | null | undefined): Zone | null {
   if (v === null || v === undefined) return null;
+  if (zones.length && v < zones[0].from) return zones[0];
   return zones.find((z) => v >= z.from && v < z.to) || zones[zones.length - 1];
 }
 
