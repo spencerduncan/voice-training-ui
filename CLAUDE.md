@@ -19,22 +19,38 @@ annotation template are all here — but there may be **no recordings yet** (emp
 to drive.
 
 **Prerequisites** (install whatever's missing):
-- **ffmpeg** — `brew install ffmpeg` (macOS) / `apt-get install ffmpeg` (Linux). Required by `analyze.py` to read mp3/m4a.
+- **ffmpeg** — `brew install ffmpeg` (macOS) / `sudo apt-get install ffmpeg` (Debian/Ubuntu) /
+  `winget install --id Gyan.FFmpeg` (Windows; open a new terminal afterwards so it's on PATH).
+  Required by `analyze.py` to read mp3/m4a; the Record panel's WAVs don't need it.
 - **uv** — the Python/dependency manager (https://docs.astral.sh/uv). **Use uv, never pip.**
-- **Node + npm** — for the dashboard.
+- **Node ≥ 20 + npm** — for the dashboard (`engines` in `dashboard-react/package.json`).
 
-**Bootstrap:**
-```fish
-uv sync                                   # Python deps (parselmouth, numpy) → .venv
-cd dashboard-react && npm install         # dashboard deps
-npm run dev                               # → http://localhost:5173
+**Bootstrap** — one command per line, so it works the same in bash, zsh, fish and
+Windows PowerShell 5.1 (which has no `&&`):
+```sh
+uv sync
+cd dashboard-react
+npm ci
+npm run dev
 ```
+`uv sync` installs the Python deps (parselmouth, numpy, plus ruff from the dev group) into
+`.venv`; `npm ci` installs exactly what `package-lock.json` pins; `npm run dev` serves the
+dashboard at http://localhost:5173.
 
-**Add the first recording** (this drives the whole dashboard):
-```fish
+- **`npm audit`:** advisories in dev-only packages (Vite, esbuild and friends) concern the
+  local dev server and build tools. None of them reaches your recordings, which are plain
+  files on disk that nothing uploads. **Never run `npm audit fix --force`** — it jumps to
+  major versions the dashboard isn't built for. Bump the one package within its range instead.
+- **Never start the dev server with `--host`** (or set `server.host`) while personal takes
+  exist: that serves `public/audio/`, `public/analysis/` and `recordings.json` to everyone on
+  your network. The default (localhost only) is the safe one.
+
+**Add the first recording** (this drives the whole dashboard): use the **Record a take**
+panel at the top of the dashboard, or analyse an existing file from the project folder:
+```sh
 uv run analyze.py "/path/to/recording.mp3" --label "what they were trying"
 ```
-Refresh the dashboard. Then author that take's insight by following the
+Refresh the dashboard (the Record panel does this for you). Then author that take's insight by following the
 `analyze-voice` skill — copy `dashboard-react/src/annotations/entries/_example.tsx`
 to `00N.tsx` (matching the new recording's id) and fill in the slots.
 
@@ -481,13 +497,20 @@ the same one the slots and the contour use), so a crash shows a gentle card, nev
 ## Technical notes for future models
 
 - **Python: use `uv`, never `pip`.** `uv run analyze.py …`, `uv add …`. Lint with
-  `uvx ruff check .` and keep it clean (fix auto-fixable; don't over-refactor).
-- **Run the dashboard:** `cd dashboard-react && npm run dev` → http://localhost:5173/.
-  It fetches `public/*` at runtime (cache-busted), so new analyses show on refresh — no
-  rebuild. `npm run build` = `tsc -b && vite build`.
+  `uv run ruff check .` and keep it clean (fix auto-fixable; don't over-refactor). ruff is
+  pinned in pyproject's dev group and configured under `[tool.ruff]`; `uvx ruff check .`
+  reads the same config.
+- **Run the dashboard:** from `dashboard-react/`, `npm ci` once, then `npm run dev` →
+  http://localhost:5173/ (Node ≥ 20). It fetches `public/*` at runtime (cache-busted), so
+  new analyses show on refresh — no rebuild. `npm run build` runs `tsc -b`, then `vite build`.
+  The dev server sends no CORS headers and `Cross-Origin-Resource-Policy: same-origin`
+  (`vite.config.ts`), so only the dashboard page itself can read your takes; keep it on
+  localhost (no `--host`).
 - **Screenshotting the live UI** (for `visual-iteration`): **Playwright** is a devDependency.
-  Use the system Chrome (no browser download): `chromium.launch({ channel: "chrome" })`. Run the
-  script **from `dashboard-react/`** so ESM resolves `playwright`. Needed for canvas/JS-rendered
+  `chromium.launch()` uses Playwright's own Chromium (`npx playwright install chromium` once);
+  `{ channel: "chrome" }` or `{ channel: "msedge" }` use an installed browser instead, if there
+  is one. Run the script **from `dashboard-react/`** so ESM resolves `playwright` (or load it
+  with `createRequire` pointed at `dashboard-react/package.json`). Needed for canvas/JS-rendered
   bits like the waveform (static SVG renderers can't capture those); also useful if the browser
   MCP drops mid-session. To capture hover states, `page.mouse.move(...)` then screenshot.
 - **Record panel** (`src/components/Recorder.tsx`, `src/wav.ts`, `vite-plugin-analyze.ts`):
