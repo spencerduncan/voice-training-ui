@@ -60,13 +60,13 @@ const PlayIcon = () => (
   </svg>
 );
 
-const DownloadLink = ({ url, name }: { url: string; name: string }) => (
+const DownloadLink = ({ url, name, label }: { url: string; name: string; label?: string }) => (
   <a
     className="dl"
     href={url}
     download={name}
-    aria-label="Download this voice sample"
-    title="Download this voice sample"
+    aria-label={label ? `Download ${label}` : "Download this voice sample"}
+    title={label ? `Download ${label}` : "Download this voice sample"}
   >
     <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true">
       <path
@@ -113,7 +113,11 @@ export function LazyWaveformPlayer(props: PlayerProps) {
       <div className="time">
         0:00 <span>/ {fmtTime(props.duration ?? 0)}</span>
       </div>
-      <DownloadLink url={url} name={`${props.downloadName ?? "voice-sample"}.${ext}`} />
+      <DownloadLink
+        url={url}
+        name={`${props.downloadName ?? "voice-sample"}.${ext}`}
+        label={props.label}
+      />
     </div>
   );
 }
@@ -241,7 +245,7 @@ export function WaveformPlayer({
         />
       </div>
 
-      <DownloadLink url={url} name={`${downloadName ?? "voice-sample"}.${ext}`} />
+      <DownloadLink url={url} name={`${downloadName ?? "voice-sample"}.${ext}`} label={label} />
     </div>
   );
 }
