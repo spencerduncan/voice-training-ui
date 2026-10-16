@@ -41,7 +41,8 @@ function fmtTime(s: number): string {
 }
 
 interface PlayerProps {
-  /** path relative to public/ (e.g. "audio/001.mp3"), or null to render nothing */
+  /** path relative to public/ (e.g. "audio/001.mp3"), a blob: URL of a fresh
+   *  recording, or null to render nothing */
   src: string | null | undefined;
   /** known duration in seconds (optional; wavesurfer reports the real one) */
   duration?: number | null;
@@ -52,6 +53,14 @@ interface PlayerProps {
   /** start playing as soon as the audio is decoded, and take focus — used
    *  when the lazy player below swaps itself for the real one on a tap */
   autoPlay?: boolean;
+}
+
+// Normally a path relative to public/ ("audio/001.mp3"), which needs BASE_URL
+// prepended. An already-absolute source — notably the blob: URL the Recorder
+// hands over for a just-recorded take — is used as-is, and is always a WAV.
+function resolveSrc(src: string): { url: string; ext: string } {
+  if (/^(blob:|data:|https?:)/.test(src)) return { url: src, ext: "wav" };
+  return { url: `${import.meta.env.BASE_URL}${src}`, ext: src.split(".").pop() || "m4a" };
 }
 
 const PlayIcon = () => (
@@ -98,8 +107,7 @@ export function LazyWaveformPlayer(props: PlayerProps) {
   const [armed, setArmed] = useState(false);
   if (!props.src) return null;
   if (armed) return <WaveformPlayer {...props} autoPlay />;
-  const url = `${import.meta.env.BASE_URL}${props.src}`;
-  const ext = props.src.split(".").pop() || "m4a";
+  const { url, ext } = resolveSrc(props.src);
   return (
     <div className="player is-idle">
       <button
@@ -173,8 +181,7 @@ export function WaveformPlayer({
   );
 
   if (!src) return null;
-  const url = `${import.meta.env.BASE_URL}${src}`;
-  const ext = src.split(".").pop() || "m4a";
+  const { url, ext } = resolveSrc(src);
 
   return (
     <div className="player">

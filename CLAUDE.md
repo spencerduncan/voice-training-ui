@@ -490,6 +490,17 @@ the same one the slots and the contour use), so a crash shows a gentle card, nev
   script **from `dashboard-react/`** so ESM resolves `playwright`. Needed for canvas/JS-rendered
   bits like the waveform (static SVG renderers can't capture those); also useful if the browser
   MCP drops mid-session. To capture hover states, `page.mouse.move(...)` then screenshot.
+- **Record panel** (`src/components/Recorder.tsx`, `src/wav.ts`, `vite-plugin-analyze.ts`):
+  records in the browser with echo cancellation / noise suppression / auto-gain **off**,
+  re-encodes to mono 16-bit WAV, and POSTs it to `/api/analyze` — a **dev-server-only**
+  endpoint (`apply: "serve"`; it doesn't exist in `vite build`/`preview`, where the panel
+  falls back to "save the file, run this command"). The endpoint writes the take to a temp
+  file and runs `uv run analyze.py <file> --label=… [--note=…]`, the same CLI as by hand.
+  It answers only a loopback `Host` with no `Origin` or this page's own, runs one analysis at
+  a time (analyze.py picks the next id from `recordings.json`, so overlapping runs would
+  clash), and returns analyze.py's stderr to the panel on failure. `VOICE_GARDEN_UV`
+  overrides the `uv` path. To test without a mic, launch Chromium with
+  `--use-fake-device-for-media-stream --use-file-for-fake-audio-capture=<some.wav>`.
 - **Ignore false IDE TypeScript errors** like *"Cannot find name 'React' / UMD global"* or
   *"Property 'glob'/'env' does not exist on ImportMeta"*. The project uses the automatic
   JSX runtime (`tsconfig` `jsx: react-jsx`) and `vite/client` types, so components

@@ -146,6 +146,22 @@ export function BulbIcon(p: IconProps = {}) {
   );
 }
 
+/** 🎙️ → a soft pink microphone on a lavender stand — record a take */
+export function MicIcon(p: IconProps = {}) {
+  const { children, ...rest } = svgProps("0 0 64 64", p);
+  return (
+    <svg {...rest}>
+      {children}
+      <path d="M16 30 C16 41 23 47 32 47 C41 47 48 41 48 30" stroke="#b6a2f0" strokeWidth="5.5" fill="none" strokeLinecap="round" />
+      <rect x="29" y="46" width="6" height="9" rx="2" fill="#b6a2f0" />
+      <rect x="20" y="53" width="24" height="6" rx="3" fill="#c9b6ff" />
+      <rect x="21" y="5" width="22" height="36" rx="11" fill="#ffb6d5" />
+      <rect x="21" y="21" width="22" height="6" fill="#ff9ec5" />
+      <ellipse cx="27.5" cy="13" rx="3" ry="4.5" fill="#ffffff" opacity="0.6" />
+    </svg>
+  );
+}
+
 /** 🌷 → the Voice Garden tulip (matches the favicon) — hero mark */
 export function TulipIcon(p: IconProps = {}) {
   // viewBox cropped tight to the flower's bounding box (centered on it) so the

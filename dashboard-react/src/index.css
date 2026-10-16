@@ -1484,3 +1484,228 @@ a.legend-link {
   border-radius: 3px;
   opacity: 0.8;
 }
+
+/* ── Record panel ─────────────────────────────────────────────────────────
+   Sits directly under the hero so it's reachable with zero recordings — that
+   empty state is exactly when someone needs it most. Same card language as
+   .stat, with the record button as the one saturated element on the page. */
+.rec-panel {
+  background: linear-gradient(180deg, var(--card) 0%, #fff4fa 100%);
+  border: 1px solid #ffe3f1;
+  border-radius: var(--radius);
+  padding: 18px 20px 20px;
+  box-shadow: var(--shadow);
+  margin-bottom: 26px;
+}
+.rec-panel .section-title {
+  margin: 0 0 12px;
+}
+.rec-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.rec-btn {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  color: #fff;
+  background: linear-gradient(140deg, #ff9ec5 0%, #c9b6ff 100%);
+  box-shadow: 0 6px 18px rgba(224, 122, 176, 0.4);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+.rec-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(224, 122, 176, 0.5);
+}
+.rec-btn:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 3px;
+}
+.rec-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+/* Live: a calm breathing halo. Not an alarm — you're just being listened to. */
+.rec-btn.is-live {
+  background: linear-gradient(140deg, #ff7fb2 0%, #ff9ec5 100%);
+  animation: rec-pulse 1.9s ease-in-out infinite;
+}
+@keyframes rec-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 126, 178, 0.5); }
+  50%      { box-shadow: 0 0 0 12px rgba(255, 126, 178, 0); }
+}
+.rec-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.rec-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+.rec-clock {
+  font-size: 20px;
+  font-weight: 700;
+  color: #b06a96;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.rec-level {
+  margin-top: 6px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--lav-bg);
+  overflow: hidden;
+}
+.rec-level span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--pink) 0%, var(--lav) 100%);
+  transition: width 0.07s linear;
+}
+.rec-error {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: #b06a96;
+  background: var(--pink-bg);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.rec-done {
+  margin-top: 16px;
+}
+.rec-label {
+  display: block;
+  margin: 14px 0 10px;
+}
+.rec-label span {
+  display: block;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  margin-bottom: 5px;
+}
+.rec-label input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  padding: 10px 13px;
+  border-radius: 13px;
+  border: 1px solid var(--pink-soft);
+  background: #fff;
+}
+.rec-label input:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+.rec-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.rec-analyze {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: linear-gradient(120deg, #ff9ec5 0%, #c9b6ff 100%);
+  box-shadow: 0 6px 16px rgba(224, 122, 176, 0.32);
+}
+.rec-analyze:disabled {
+  opacity: 0.5;
+  cursor: default;
+  box-shadow: none;
+}
+.rec-save,
+.rec-again {
+  font: inherit;
+  font-size: 13px;
+  color: #7a5a92;
+  text-decoration: none;
+  cursor: pointer;
+  padding: 9px 15px;
+  border-radius: 999px;
+  border: 1px solid var(--lav-soft);
+  background: var(--lav-bg);
+}
+.rec-analyze:focus-visible,
+.rec-save:focus-visible,
+.rec-again:focus-visible,
+.rec-copy:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+.rec-result {
+  margin-top: 14px;
+  border-radius: 13px;
+  padding: 11px 13px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.rec-result.is-ok {
+  background: #eefaf4;
+  color: #3f7a63;
+}
+/* Not-ok here means "the endpoint didn't answer", not "your voice was bad" —
+   butter, not red, and the copy offers the manual route. */
+.rec-result.is-warn {
+  background: #fff8e8;
+  color: #8a6d3b;
+}
+.rec-result pre {
+  margin: 0 0 6px;
+  max-height: 14em;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.rec-result p {
+  margin: 0;
+}
+.rec-result .rec-result-head {
+  margin-bottom: 6px;
+  font-weight: 700;
+}
+.rec-result code {
+  font-size: 11.5px;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 1px 5px;
+  border-radius: 5px;
+  word-break: break-all;
+}
+.rec-note {
+  margin: 12px 0 0;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+@media (max-width: 520px) {
+  .rec-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .rec-actions > * {
+    text-align: center;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rec-btn.is-live { animation: none; }
+  .rec-level span { transition: none; }
+}

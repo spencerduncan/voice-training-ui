@@ -16,6 +16,10 @@ Open your coding agent of choice and ask it to read CLAUDE.md. It will give you 
 
 If you don't know what a coding agent is or how to do this, DM me. I will see about packaging it for you in an easier format, but it will be less useful as I will have to remove the AI features.
 
+### Recording a take
+
+With the dashboard running (`npm run dev`), the **Record a take** panel at the top records from your microphone, lets you listen back, and — once you say what you were going for — runs the analyzer for you; the take shows up on the dashboard straight away. The audio goes only to the dev server on your own machine. Your browser's echo cancellation, noise suppression and auto-gain are switched off so they don't reshape what's being measured. You can also save the file and run `uv run analyze.py` on it yourself; the panel shows the exact command.
+
 ## Your recordings stay on your machine 🌷
 
 `dashboard-react/public/audio/` and `dashboard-react/public/analysis/` ship **empty on purpose** — only a `.gitkeep` placeholder is in each. Those two folders and `recordings.json` are gitignored, so your takes and their measurements stay local and won't ride along if you commit or push this repo.

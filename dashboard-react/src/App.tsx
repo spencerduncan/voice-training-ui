@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Recording, ReferenceVoice } from "./types";
 import { loadRecordings, loadReferences, type Unreadable } from "./data";
 import {
@@ -22,6 +22,7 @@ import { LineChart, type Point, type ChartBand } from "./components/LineChart";
 import { RecordingCard } from "./components/RecordingCard";
 import { CheatSheet } from "./components/CheatSheet";
 import { VoiceCareNote } from "./components/VoiceCareNote";
+import { Recorder } from "./components/Recorder";
 import { RegisterSection } from "./components/RegisterSection";
 import {
   AnnotationsProvider,
@@ -65,23 +66,31 @@ export function App() {
   // the "This take" heading — selection from the cards below scrolls back here
   const takeHeading = useRef<HTMLHeadingElement>(null);
 
+  // Pulled out of the effect so the Recorder can re-run it after analysing a
+  // take — the new entry then appears without a page reload.
+  const mounted = useRef(false);
   useEffect(() => {
-    let alive = true;
-    loadRecordings()
-      .then((d) => {
-        if (alive) setLoad({ status: "ready", ...d });
-      })
-      .catch((e: unknown) => {
-        if (alive)
-          setLoad({
-            status: "error",
-            message: e instanceof Error ? e.message : String(e),
-          });
-      });
+    mounted.current = true;
     return () => {
-      alive = false;
+      mounted.current = false;
     };
   }, []);
+  const refresh = useCallback(async () => {
+    try {
+      const d = await loadRecordings();
+      if (mounted.current) setLoad({ status: "ready", ...d });
+    } catch (e: unknown) {
+      if (mounted.current)
+        setLoad({
+          status: "error",
+          message: e instanceof Error ? e.message : String(e),
+        });
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
   // reference voices (real men/women) — degrade gracefully if missing.
   useEffect(() => {
@@ -118,6 +127,12 @@ export function App() {
 
   const openModal = (key: MetricKey, rect: DOMRect) => setModal({ key, rect });
 
+  // a take the Recorder just analysed: reload, then show it
+  const onAnalyzed = (id?: number) =>
+    void refresh().then(() => {
+      if (id != null) select(id);
+    });
+
   const R = load.status === "ready" ? load.recordings : [];
   const unreadable = load.status === "ready" ? load.unreadable : [];
   const latest = R.length ? R[R.length - 1] : null;
@@ -151,6 +166,10 @@ export function App() {
           </div>
         )}
       </header>
+
+      {/* Outside the `active &&` block on purpose — with no recordings
+          yet, this is the only thing on the page that does anything. */}
+      <Recorder onAnalyzed={onAnalyzed} />
 
       {load.status === "loading" && (
         <div className="empty">gathering your takes… 🌱</div>
@@ -544,8 +563,8 @@ function WelcomeCard() {
       <h2>🌸 Welcome to your Voice Garden</h2>
       <p>
         Nothing planted yet — let's grow your first take. Record yourself
-        reading something (the Rainbow Passage is a lovely start), then from the
-        project folder run:
+        reading something (the Rainbow Passage is a lovely start) with the
+        panel above, or record anywhere and run this from the project folder:
       </p>
       <pre>
         <code>uv run analyze.py "/path/to/recording.mp3" --label "what you were practicing"</code>
