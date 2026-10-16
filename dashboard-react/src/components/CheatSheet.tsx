@@ -1,9 +1,73 @@
 import { useState } from "react";
 import { RichText } from "./RichText";
+import type { ReferenceVoice } from "../types";
+import {
+  PITCH_ZONES,
+  SD_ZONES,
+  F2_ZONES,
+  LOUD_ZONES,
+  HNR_ZONES,
+  JITTER_ZONES,
+  WEIGHT_ZONES,
+  FEM,
+  type Zone,
+} from "../zones";
+
+// The little "guide" lines under each glossary entry are RENDERED FROM
+// `zones.ts` — the single source of truth the stat cards, gauges and trend
+// charts also read. Never restate a band as a prose number here: the cheat
+// sheet used to quietly disagree with the cards (e.g. it promised "bright
+// 1500 Hz+" while F2_ZONES had already moved to 1420+), which meant a take
+// could get a pink "bright" pill and then be told by the glossary that it
+// wasn't there yet. Change a band in zones.ts and this line follows.
+function ZoneGuide({
+  zones,
+  unit = "",
+  highlight,
+}: {
+  zones: Zone[];
+  unit?: string; // literal suffix, incl. its own spacing: " Hz", " dB", "%"
+  highlight?: string; // zone name to bold; defaults to the feminine/goal band
+}) {
+  const goal = highlight ?? zones.find((z) => z.color === FEM)?.name;
+  return (
+    <>
+      {zones.map((z, i) => {
+        const last = i === zones.length - 1;
+        // Unit on the outer bands only — repeating it on every band is noise.
+        const text = last
+          ? `${z.name} ${z.from}${unit}+`
+          : i === 0
+            ? `${z.name} <${z.to}${unit}`
+            : `${z.name} ${z.from}–${z.to}`;
+        return (
+          <span key={z.name}>
+            {i > 0 && " · "}
+            {z.name === goal ? <b>{text}</b> : text}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+// Mean F2 of the shipped reference voices (public/reference.json), so the
+// "real women average ~X" aside can't drift from the corpus either. Returns
+// null when reference.json didn't load — then we simply say nothing.
+function meanF2(refs: ReferenceVoice[], gender: "f" | "m"): number | null {
+  const v = refs
+    .filter((r) => r.gender === gender)
+    .map((r) => r.formants.f2_hz)
+    .filter((n): n is number => n !== null && n !== undefined);
+  if (!v.length) return null;
+  return Math.round(v.reduce((a, b) => a + b, 0) / v.length);
+}
 
 // Real React collapsible (controlled <details>-style) for the cheat sheet.
-export function CheatSheet() {
+export function CheatSheet({ references = [] }: { references?: ReferenceVoice[] }) {
   const [open, setOpen] = useState(false);
+  const f2f = meanF2(references, "f");
+  const f2m = meanF2(references, "m");
   return (
     <details className="cheat" open={open}>
       <summary
@@ -22,7 +86,7 @@ export function CheatSheet() {
             hear.
           </p>
           <div className="guide">
-            masc &lt;145 · neutral 145–165 · <b>feminine 165 Hz+</b>
+            <ZoneGuide zones={PITCH_ZONES} unit=" Hz" />
           </div>
           <div className="tip">
             💗 To raise it: think "light &amp; forward," let your voice float up
@@ -37,7 +101,7 @@ export function CheatSheet() {
             (variability/SD). Flat = monotone; lively = expressive.
           </p>
           <div className="guide">
-            variability: flat &lt;20 · <b>natural 20–40</b> · expressive 40+ Hz
+            variability: <ZoneGuide zones={SD_ZONES} unit=" Hz" />
           </div>
           <div className="tip">
             💗 Feminine speech tends to be more melodic. Read with feeling — let
@@ -55,8 +119,10 @@ export function CheatSheet() {
             it separates voices more cleanly.
           </p>
           <div className="guide">
-            F2: deeper &lt;1330 · mid 1330–1500 · <b>bright 1500 Hz+</b> (real
-            women avg ~1450, men ~1281; still varies by vowel)
+            F2: <ZoneGuide zones={F2_ZONES} unit=" Hz" />
+            {f2f !== null && f2m !== null
+              ? ` (real women avg ~${f2f}, men ~${f2m}; still varies by vowel)`
+              : " (still varies a lot by vowel)"}
           </div>
           <div className="tip">
             💗 To brighten: smile slightly, lift the voice toward the front of
@@ -67,11 +133,11 @@ export function CheatSheet() {
         <div className="gloss-item">
           <h4>📣 Loudness (intensity)</h4>
           <p>
-            How present and projected your voice is. Your current focus! Soft
-            voices can read timid; a confident volume carries.
+            How present and projected your voice is. Soft voices can read timid;
+            a confident volume carries.
           </p>
           <div className="guide">
-            soft 45–55 · comfy 55–65 · <b>strong 65 dB+</b>
+            <ZoneGuide zones={LOUD_ZONES} unit=" dB" highlight="strong" />
           </div>
           <div className="tip">
             💗 Support from the breath/belly, not the throat — push more air, not
@@ -86,7 +152,7 @@ export function CheatSheet() {
             Higher = clearer.
           </p>
           <div className="guide">
-            breathy &lt;10 · clear-ish 10–18 · <b>clear 18 dB+</b>
+            <ZoneGuide zones={HNR_ZONES} unit=" dB" />
           </div>
           <div className="tip">
             💗 A <i>little</i> breathiness can read feminine, but too much loses
@@ -103,7 +169,7 @@ export function CheatSheet() {
             cycle-to-cycle. Lower = steadier, more controlled.
           </p>
           <div className="guide">
-            jitter: <b>steady &lt;1%</b> · okay 1–2% · rough 2%+ &nbsp;|&nbsp;
+            jitter: <ZoneGuide zones={JITTER_ZONES} unit="%" /> &nbsp;|&nbsp;
             shimmer: steady &lt;3.8%
           </div>
           <div className="tip">
@@ -127,8 +193,7 @@ export function CheatSheet() {
             (unlike raw loudness dB).
           </p>
           <div className="guide">
-            <b>light &lt;9</b> · overlap 9–12.5 · heavy 12.5 dB+ (smaller =
-            lighter)
+            <ZoneGuide zones={WEIGHT_ZONES} unit=" dB" /> (smaller = lighter)
           </div>
           <div className="tip">
             💗 To lighten: let the folds come together gently — easy, breath-flowy
