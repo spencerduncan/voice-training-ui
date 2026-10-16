@@ -95,6 +95,11 @@ ENTRIES_DIR = ROOT / "dashboard-react" / "src" / "annotations" / "entries"
 RECORDINGS_META_JSON = ROOT / "recordings.meta.json"
 # --delete / --replace move files here instead of deleting them (gitignored).
 TRASH_DIR = ROOT / "trash"
+# Each take's source file, byte for byte, as originals/<NNN>.<ext> (gitignored).
+# Outside public/, so it is never served or bundled into a build; public/audio
+# gets a small mono mp3 instead. --backfill re-measures this file, so a re-run
+# reproduces the first run exactly (the mp3 would move pitch, F2 and loudness).
+ORIGINALS_DIR = ROOT / "originals"
 
 # Pitch search range (Hz). Wide enough for a feminizing voice without octave errors.
 PITCH_FLOOR = 75.0
@@ -1023,10 +1028,13 @@ def _id_of(name: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+TAKE_DIRS = (AUDIO_DIR, ANALYSIS_DIR, ENTRIES_DIR, ORIGINALS_DIR)
+
+
 def take_files(rec_id: int) -> list[Path]:
     """Every file on disk that belongs to take `rec_id`: its playback audio,
-    its analysis detail and its annotation entry."""
-    return [p for d in (AUDIO_DIR, ANALYSIS_DIR, ENTRIES_DIR) if d.is_dir()
+    analysis detail, annotation entry and original."""
+    return [p for d in TAKE_DIRS if d.is_dir()
             for p in sorted(d.iterdir()) if p.is_file() and _id_of(p.name) == rec_id]
 
 
@@ -1034,7 +1042,7 @@ def ids_in_use(recordings: list[dict]) -> set[int]:
     """Every take number with a trace anywhere: recordings.json, the audio,
     analysis and annotation-entry folders, and the trash."""
     ids = {r["id"] for r in recordings if isinstance(r.get("id"), int)}
-    for d in (AUDIO_DIR, ANALYSIS_DIR, ENTRIES_DIR):
+    for d in TAKE_DIRS:
         if d.is_dir():
             ids |= {i for p in d.iterdir() if (i := _id_of(p.name)) is not None}
     if TRASH_DIR.is_dir():
@@ -1175,6 +1183,31 @@ def install_playback(playback: Path, rec_id: int) -> str:
     return f"audio/{name}"
 
 
+def keep_original(src: Path, rec_id: int) -> Path:
+    """Copy the take's source file, unchanged, to originals/<NNN>.<ext>."""
+    ext = src.suffix.lower()
+    if not re.fullmatch(r"\.[a-z0-9]{1,5}", ext, re.ASCII):
+        ext = ".audio"
+    ORIGINALS_DIR.mkdir(parents=True, exist_ok=True)
+    dest = ORIGINALS_DIR / f"{rec_id:03d}{ext}"
+    shutil.copy2(src, dest)
+    return dest
+
+
+def measured_file(entry: dict) -> Path | None:
+    """The file a take's numbers come from: its original when kept, else (takes
+    from before originals/ existed) its playback copy, which for those takes
+    is the source file byte for byte."""
+    rec_id, audio = entry.get("id"), entry.get("audio")
+    if isinstance(rec_id, int) and ORIGINALS_DIR.is_dir():
+        for p in sorted(ORIGINALS_DIR.iterdir()):
+            if p.is_file() and _id_of(p.name) == rec_id:
+                return p
+    if isinstance(audio, str):
+        return AUDIO_DIR / Path(audio).name
+    return None
+
+
 def write_detail(rec_id: int, detail: dict) -> str:
     write_text_atomic(ANALYSIS_DIR / f"{rec_id}.json", json.dumps(detail))
     return f"analysis/{rec_id}.json"
@@ -1241,6 +1274,7 @@ def add_take(args: argparse.Namespace) -> None:
 
     # ---- write phase: nothing above has touched a file -----------------------
     reserve_id(rec_id)
+    keep_original(src, rec_id)
     audio = install_playback(playback, rec_id)
     entry = {
         "id": rec_id,
@@ -1290,12 +1324,17 @@ def replace_take(rec_id: int, args: argparse.Namespace) -> None:
     print(f"🎧 Re-analyzing entry #{rec_id} from {src.name} ...")
     metrics, detail, register = measure_file(src, floor, args.formant_ceiling)
     playback = encode_playback(src)
+    # Staged too: `src` may be this take's own original (re-measuring with
+    # another --register-floor), which is about to move to the trash.
+    staged = _temp_dir() / src.name
+    shutil.copy2(src, staged)
 
     # ---- write phase ---------------------------------------------------------
     trash = new_trash_dir(f"replaced-take{rec_id:03d}")
     write_text_atomic(trash / "entry.json", json.dumps(entry, indent=2))
     old_files = [p for p in take_files(rec_id) if p.parent != ENTRIES_DIR]
     moved = move_to_trash(old_files, trash)
+    keep_original(staged, rec_id)
     entry.update({
         "label": args.label if args.label is not None else entry.get("label", ""),
         "note": args.note if args.note is not None else entry.get("note", ""),
@@ -1365,11 +1404,13 @@ IMPORT_EXTS = {
     "audio": {"mp3", "m4a", "wav", "ogg", "oga", "opus", "flac", "webm", "aac", "mp4"},
     "analysis": {"json"},
     "entries": {"tsx"},
+    "originals": None,  # any short alphanumeric extension: kept, never served or run
 }
 
 
 def _export_dirs() -> dict[str, Path]:
-    return {"audio": AUDIO_DIR, "analysis": ANALYSIS_DIR, "entries": ENTRIES_DIR}
+    return {"audio": AUDIO_DIR, "analysis": ANALYSIS_DIR, "entries": ENTRIES_DIR,
+            "originals": ORIGINALS_DIR}
 
 
 def export_garden(out: Path) -> None:
@@ -1404,9 +1445,9 @@ def export_garden(out: Path) -> None:
         for arcname, path in files:
             z.write(path, arcname)
     os.replace(tmp, out)
-    n_entries = sum(a.startswith("entries/") for a, _ in files)
-    print(f"📦 Exported {len(recordings)} take(s), {len(files) - n_entries} audio/analysis "
-          f"file(s) and {n_entries} annotation entr{'y' if n_entries == 1 else 'ies'} to "
+    counts = ", ".join(f"{sum(a.startswith(f + '/') for a, _ in files)} {f}"
+                       for f in _export_dirs())
+    print(f"📦 Exported {len(recordings)} take(s) ({counts}) to "
           f"{out} ({out.stat().st_size / 1e6:.1f} MB). It's your voice: keep it private.")
 
 
@@ -1466,16 +1507,21 @@ def import_garden(src: Path) -> None:
                 + ". Move them away first; nothing was imported.")
 
         writes: list[tuple[Path, str]] = []
+        # Files of takes already here are left alone quietly; `skipped` counts
+        # only what isn't a take file at all.
         skipped = 0
+        here_ids = {r["id"] for r in incoming} - new_ids
         for info in z.infolist():
             if info.is_dir() or info.filename in (
                     "manifest.json", "recordings.json", "recordings.meta.json"):
                 continue
             folder, _, name = info.filename.partition("/")
             ext = name.rpartition(".")[2].lower()
-            if (folder not in IMPORT_EXTS or "/" in name or ext not in IMPORT_EXTS[folder]
+            exts = IMPORT_EXTS.get(folder, set())
+            if (folder not in IMPORT_EXTS or "/" in name
+                    or (exts is not None and ext not in exts)
                     or _id_of(name) not in new_ids):
-                skipped += 1
+                skipped += _id_of(name) not in here_ids
                 continue
             writes.append((_export_dirs()[folder] / name, info.filename))
         missing = [r["id"] for r in new if isinstance(r.get("audio"), str) and not any(
@@ -1488,8 +1534,8 @@ def import_garden(src: Path) -> None:
             tmp.write_bytes(z.read(arcname))
             os.replace(tmp, dest)
     if new:
-        top = max(new_ids)
-        reserve_id(max(top, (meta_in.get("next_id", 1) if isinstance(meta_in, dict) else 1) - 1))
+        theirs = meta_in.get("next_id") if isinstance(meta_in, dict) else None
+        reserve_id(max(max(new_ids), theirs - 1 if isinstance(theirs, int) else 0))
         recordings.extend(new)
         recordings.sort(key=_by_id)
         save_recordings(recordings)
@@ -1497,7 +1543,7 @@ def import_garden(src: Path) -> None:
     print(f"📥 Imported {len(new)} take(s)"
           + (f" ({', '.join(f'#{i}' for i in sorted(new_ids))})" if new else "")
           + f" and {len(writes)} file(s) from {src.name}"
-          + (f"; {same} were already here" if same else "")
+          + (f"; {same} take(s) were already here and left as they are" if same else "")
           + (f"; ignored {skipped} file(s) that aren't take files" if skipped else "") + ".")
     if missing:
         print(f"⚠️  No audio in the zip for take(s) {', '.join(f'#{i}' for i in missing)}.")
@@ -1539,10 +1585,9 @@ def backfill(register_floor: float | None = None,
         for i, entry in enumerate(recordings):
             rec_id = entry.get("id")
             try:
-                audio = entry.get("audio")
-                if not isinstance(rec_id, int) or not isinstance(audio, str):
+                src = measured_file(entry)
+                if not isinstance(rec_id, int) or src is None:
                     raise TakeError("the entry has no take number or no audio path")
-                src = AUDIO_DIR / Path(audio).name
                 if not src.is_file():
                     raise TakeError(f"its audio is missing ({rel(src)})")
                 old = entry.get("register") or {}

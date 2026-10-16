@@ -44,3 +44,5 @@ dashboard-react/src/annotations/entries/*
 recordings.meta.json
 trash/
 .*.tmp
+# each take's source file, byte for byte (what --backfill re-measures)
+originals/
