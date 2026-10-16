@@ -193,6 +193,25 @@ section {
   padding: 11px 13px;
   color: #7a5a92;
 }
+/* Reference-set context. Deliberately styled like .res-f1 (a calm aside, never a
+   warning) but a touch larger, since it qualifies the verdict above it. No blue
+   anywhere — this is not a masculine-register readout. */
+.res-context {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  margin-top: 10px;
+  background: var(--lav-bg);
+  border-radius: 11px;
+  padding: 10px 12px;
+}
+.res-context b {
+  color: #7a5a92;
+}
+.res-context i {
+  font-style: normal;
+  color: #7a5a92;
+}
 .res-f1 {
   font-size: 12px;
   color: var(--ink-soft);
@@ -1095,6 +1114,15 @@ a.legend-link {
 }
 .mm-legend-note {
   font-style: italic;
+}
+/* Framing line under the legend — keeps the reference row reading as a sample
+   rather than a target. Quiet on purpose: same size as the legend, no rule
+   above it, no colour that could imply a verdict. */
+.mm-context {
+  margin: 9px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
 }
 
 /* clickable dots / ref ticks + the in-modal player */

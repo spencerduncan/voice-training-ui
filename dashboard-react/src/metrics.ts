@@ -126,7 +126,7 @@ export const METRICS: Record<MetricKey, MetricDef> = {
     take: (r) => r.formants.f2_hz,
     ref: (v) => v.formants?.f2_hz,
     showRefs: true,
-    blurb: "main brightness cue · median over vowel nuclei · higher = smaller, brighter tract (reads feminine)",
+    blurb: "main brightness cue · median over vowel nuclei · higher = a brighter, smaller-sounding space · real voices land on both sides of these bands",
   },
   f3: {
     key: "f3",
