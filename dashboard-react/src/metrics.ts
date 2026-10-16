@@ -16,12 +16,6 @@ import {
   goalOf,
 } from "./zones";
 
-// Shown in the modal legend while a metric's reference voices sit out: the
-// shipped reference.json was measured before the current analyzer's formant
-// and weight changes, so its F2/F3/weight values aren't comparable to new
-// takes until it's rebuilt. Flip `showRefs` back once it is.
-const REMEASURING = "reference voices are being re-measured with the current analyzer";
-
 const pitchGoal = goalOf(PITCH_ZONES);
 
 export type MetricKey =
@@ -46,8 +40,9 @@ export interface MetricDef {
   ref: (v: ReferenceVoice) => number | null | undefined;
   // whether reference (real men's/women's) ticks are meaningful here.
   // gendered metrics (pitch, F2, F3) → show refs; skill/non-gendered → her
-  // only. Weight is her own trend only until the measure is validated, and
-  // F2/F3 sit out until reference.json is re-measured (see refNote).
+  // only. Weight is her own trend only until the measure is validated (see
+  // refNote). If the formant pipeline changes again, rebuild reference.json
+  // before trusting the F2/F3 ticks, or set showRefs false with a refNote.
   showRefs: boolean;
   // why the reference ticks are missing, when it's not simply "not gendered"
   refNote?: string;
@@ -125,12 +120,11 @@ export const METRICS: Record<MetricKey, MetricDef> = {
     unit: "Hz",
     zones: F2_ZONES,
     lo: 1100,
-    hi: 2000,
+    hi: 2200,
     take: (r) => r.formants.f2_hz,
     ref: (v) => v.formants?.f2_hz,
-    showRefs: false,
-    refNote: REMEASURING,
-    blurb: "main brightness cue · median over vowel nuclei · higher = a brighter, smaller-sounding space · real voices land on both sides of these bands",
+    showRefs: true,
+    blurb: "brightness cue · median over vowel nuclei · higher = a brighter, smaller-sounding space · real voices land on both sides of these bands (F3 is the steadier of the two)",
   },
   f3: {
     key: "f3",
@@ -141,8 +135,7 @@ export const METRICS: Record<MetricKey, MetricDef> = {
     hi: 3400,
     take: (r) => r.formants.f3_hz,
     ref: (v) => v.formants?.f3_hz,
-    showRefs: false,
-    refNote: REMEASURING,
-    blurb: "supports brightness · higher = brighter / lighter resonance",
+    showRefs: true,
+    blurb: "tract-length cue, the steadier of the two · higher = brighter / lighter resonance",
   },
 };

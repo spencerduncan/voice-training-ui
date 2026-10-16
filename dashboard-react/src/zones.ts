@@ -48,32 +48,33 @@ export const PITCH_ZONES: Zone[] = [
 // MEASURE: vowel-targeted **median** F2/F3 over loud, stable vowel nuclei (not
 // the old all-frames mean) — see `vowel_formants()` in analyze.py.
 //
-// REFERENCE-GROUNDED on **VCTK American speakers** via
-// `scripts/build_reference_set.py` (single consistent corpus, measured with the
-// SAME method): n = 17 female, 4 male.
-//   F2: FEMALE mean 1450 Hz (1280…1646) · MALE mean 1281 Hz (1234…1325)
-//   F3: FEMALE mean 2742 Hz (2403…3049) · MALE mean 2523 Hz (2365…2695)
+// REFERENCE-GROUNDED on the **VCTK American + Canadian speakers** via
+// `scripts/build_reference_set.py` (rebuilt 2026-10-16: one analyzer pass per
+// speaker over four Rainbow Passage sentences at the 5500 Hz formant ceiling —
+// the same estimator a take gets): n = 22 female, 7 male.
+//   F2: FEMALE 1695 ± 105 Hz · MALE 1578 ± 95 Hz · d = 1.13
+//   F3: FEMALE 2882 ± 122 Hz · MALE 2682 ± 89 Hz · d = 1.73
 //
-// F2 separates the sexes (~169 Hz, female higher); F3 less so (~219 Hz, heavy
-// overlap) — real-but-imperfect cues, not hard lines. Bands are set so each
-// sex's MEAN lands in its zone (female → FEM, male → MASC) with the overlap as
-// the neutral band. Caveats: small male n (4); the user reads the Rainbow
-// Passage while refs read other sentences, so median formants stay somewhat
-// content-dependent — guidance, not law. Re-ground after adding speakers via
-// `build_reference_set.py`.
+// Cut points sit at the midpoint between the sex means ± half the pooled SD
+// (docs/reference-stats.json → zones_ts["all@5500"]), so the neutral band is
+// one SD wide and a weak cue shows up as weak. At this ceiling **F3 is the
+// steadier cue** (15/22 women above the highest man) and F2 overlaps more
+// (7/22) — real-but-imperfect cues, not hard lines. Re-run the build script
+// after any change to the corpus or the formant pipeline and paste its tables
+// here.
 //
 // COLOR RULE (strict): blue MASC = deeper/masculine (LOWER) ONLY; pink FEM =
 // brighter/feminine (HIGHER); butter = the overlap between.
 export const F2_ZONES: Zone[] = [
-  { from: 1100, to: 1340, color: MASC, name: "deeper" },
-  { from: 1340, to: 1420, color: BUTTER, name: "neutral" },
-  { from: 1420, to: 2200, color: FEM, name: "bright", goal: true },
+  { from: 1100, to: 1580, color: MASC, name: "deeper" },
+  { from: 1580, to: 1690, color: BUTTER, name: "neutral" },
+  { from: 1690, to: 2200, color: FEM, name: "bright", goal: true },
 ];
 
 export const F3_ZONES: Zone[] = [
-  { from: 2100, to: 2560, color: MASC, name: "deeper" },
-  { from: 2560, to: 2700, color: BUTTER, name: "neutral" },
-  { from: 2700, to: 3400, color: FEM, name: "bright", goal: true },
+  { from: 2100, to: 2720, color: MASC, name: "deeper" },
+  { from: 2720, to: 2840, color: BUTTER, name: "neutral" },
+  { from: 2840, to: 3400, color: FEM, name: "bright", goal: true },
 ];
 
 export const LOUD_ZONES: Zone[] = [
@@ -147,8 +148,9 @@ export const JITTER_ZONES: Zone[] = [
 //   · The measure isn't validated yet. The Oct 2026 review found it unstable
 //     (creak frames and formant mistracking swing a take by several dB) and the
 //     direction unsettled: arithmetically a steeper source roll-off gives a
-//     LARGER H1*–A3* (see the analyzer docstring), yet on the VCTK reference set
-//     the women average LOWER (~9.1 vs ~12.5 dB, only n = 4 men).
+//     LARGER H1*–A3* (see the analyzer docstring), yet on the rebuilt VCTK
+//     corpus (22 F / 7 M, median over vowel nuclei) the sexes don't separate at
+//     all (F 6.1 vs M 5.7 dB, d = 0.19).
 //   · So: neutral GROW/BUTTER colours (never MASC blue or FEM pink), direction
 //     names instead of "light"/"heavy" verdicts, no goal band, and no male/
 //     female reference ticks in the modal (`showRefs: false` in metrics.ts).
@@ -162,9 +164,9 @@ export const WEIGHT_DIRECTION =
   "lower or higher is not yet validated as a feminine cue; watch your own trend";
 
 export const WEIGHT_ZONES: Zone[] = [
-  { from: 0, to: 10, color: GROW, name: "lower" },
-  { from: 10, to: 12.5, color: BUTTER, name: "mid" },
-  { from: 12.5, to: 20, color: GROW, name: "higher" },
+  { from: 0, to: 5, color: GROW, name: "lower" },
+  { from: 5, to: 7, color: BUTTER, name: "mid" },
+  { from: 7, to: 20, color: GROW, name: "higher" },
 ];
 
 // In-register melody (semitones SD over steady in-register speech: creak,

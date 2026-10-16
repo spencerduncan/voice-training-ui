@@ -196,8 +196,11 @@ export async function loadReferences(): Promise<ReferenceVoice[]> {
     const res = await fetch(`${import.meta.env.BASE_URL}reference.json?t=${Date.now()}`);
     if (!res.ok) return [];
     const data: unknown = await res.json();
-    if (!Array.isArray(data)) return [];
-    return data.flatMap((raw): ReferenceVoice[] => {
+    // reference.json is `{ meta, voices }` since the Oct 2026 rebuild; older
+    // copies were a bare array. Accept both.
+    const list: unknown = Array.isArray(data) ? data : obj(data).voices;
+    if (!Array.isArray(list)) return [];
+    return list.flatMap((raw): ReferenceVoice[] => {
       if (!isObj(raw) || typeof raw.label !== "string") return [];
       if (raw.gender !== "f" && raw.gender !== "m") return [];
       const p = obj(raw.pitch);

@@ -207,10 +207,10 @@ many audio samples as reference points** — instantly answering "where do I sit
   the bar — STRICT color rule — with **shape as a second channel** (round head = woman,
   square head = man; the legend keys match) and the gender in each tick's `aria-label`. Each
   tick has a ≥ 14 px hit area; ticks closer than that stack into rows (up to 4). Shown only on **gendered** metrics whose reference numbers are
-  comparable (`showRefs: true` → Pitch today). F2/F3 are gendered but sit out
-  (`showRefs: false` + a `refNote` legend line, "reference voices are being re-measured with the
-  current analyzer") until `reference.json` is rebuilt with the current formant pipeline — flip
-  them back then; the ResonanceCard counts and the CheatSheet F2 averages follow the same
+  comparable (`showRefs: true` → Pitch, F2, F3: the corpus is measured with the same analyzer
+  pass as a take, so they are). If the formant pipeline changes again, rebuild `reference.json`
+  before trusting the F2/F3 ticks, or set `showRefs: false` with a `refNote` legend line in the
+  meantime; the ResonanceCard counts and the CheatSheet F2 averages follow the same
   switch. Non-gendered ones (Loudness, HNR, jitter) and Weight (own trend only, still being
   validated) show her takes only, with a legend note.
 - A **legend** + the lo/hi axis. The scale auto-stretches lo/hi so every value fits.
@@ -239,32 +239,44 @@ A corpus of **real adult male & female voices**, each measured with the **same `
 pipeline** as the user's takes so the numbers are directly comparable — the data backbone for
 the reference ticks above.
 
-- **Corpus: VCTK 0.92, American-accent speakers** (currently 17 female + 4 male), pulled from
-  the `sanchit-gandhi/vctk` HuggingFace **parquet mirror** and filtered on the dataset's own
-  `accent` column. Studio-clean read speech in consistent recording conditions → a fair, honest
-  male/female reference. (The earlier Wikimedia-Commons clips were **dropped entirely** — they
-  were spoken-article narrations with unverifiable provenance + intro boilerplate.)
-- **`public/reference.json`** — array of `ReferenceVoice` (`src/types.ts`):
-  `{ label, gender: "f"|"m", source, audio, pitch{mean_hz,sd_hz}, formants{f2_hz,f3_hz},
-  intensity{mean_db}, voice_quality{hnr_db,jitter_pct}, weight{h1a3c_db} }`. Each speaker is the
-  **average of ~3 utterances**; `source` cites the real VCTK speaker id + DataShare. Fetched at
-  runtime (cache-busted) like `recordings.json`; the app **degrades gracefully** to `[]` if missing.
-- **`public/reference-audio/vctk_<g><id>.mp3`** — previews for the in-modal player: each
-  speaker's ~3 measured clips **concatenated** with 0.35 s gaps (≈10–18 s), mono, 96 kbps.
-- **What the data says:** pitch separates the sexes cleanly (F≈210 Hz vs M≈108 Hz). Weight
-  (corrected H1\*–A3\*) means differ (F 9.06 vs M 12.51 dB) but with only 4 men, a direction
-  opposite to the published literature, and a measure the review found unstable, so the app
-  does **not** use it as a gender cue (see Weight below). `reference.json` still stores it.
+- **Corpus: VCTK 0.92, American + Canadian speakers** (22 female + 7 male; rebuilt
+  2026-10-16), pulled from the `sanchit-gandhi/vctk` HuggingFace **parquet mirror** (speakers
+  located from the parquet footer statistics, ~0.5 GB of audio) and filtered on the dataset's
+  own `accent` column. Studio-clean read speech in consistent recording conditions → a fair,
+  honest male/female reference. p315 is in VCTK's speaker list but absent from the mirror and
+  is skipped.
+- **`public/reference.json`** — `{ meta, voices }`. `meta` records provenance (analyzer commit
+  + sha256, parselmouth/Praat/ffmpeg versions, corpus, date); `voices` is the array of
+  `ReferenceVoice` (`src/types.ts`): label, gender, accent, source, audio, plus the same
+  `pitch / formants / intensity / voice_quality / weight / register` blocks a take has. Each
+  speaker is **one analyzer pass over four concatenated Rainbow Passage sentences** at the
+  5500 Hz formant ceiling — the same estimator a take gets, not a per-clip average. Fetched at
+  runtime (cache-busted) like `recordings.json`; the loader in `src/data.ts` also accepts the
+  old bare-array shape and **degrades gracefully** to `[]` if missing.
+- **`public/reference-audio/vctk_<g><id>.mp3`** — the exact audio that was measured: the four
+  clips concatenated (≈18–23 s), mono, 96 kbps, played in the modal.
+- **`docs/reference-stats.json`** — per-sex mean/SD/min/max and Cohen's d for every metric at
+  5500 Hz and 5000 Hz, the zone rule, and paste-ready `zones.ts` tables (`zones_ts["all@5500"]`).
+- **What the data says (5500 Hz, n = 22 F / 7 M):** pitch separates the sexes cleanly
+  (F 197 vs M 111 Hz, d 3.7). **F3 is the steadier resonance cue** (F 2882 vs M 2682 Hz,
+  d 1.7; 15/22 women above the highest man); F2 overlaps more (F 1695 vs M 1578 Hz, d 1.1).
+  Weight (corrected H1\*–A3\*, median over vowel nuclei) does **not** separate the sexes
+  (F 6.1 vs M 5.7 dB, d 0.2), so the app keeps it as the user's own trend only (see Weight
+  below). HNR and jitter separate the sexes strongly here (d 2.5 / −2.9), largely an F0
+  effect, so their bands stay skill bands and were not re-cut on the sex midpoint.
 
 **How to (re)generate:** `uv run scripts/build_reference_set.py` — the committed generator
-and the one place the reference pipeline lives (edit it there, not ad hoc).
-1. It downloads the VCTK American speakers listed in its registry. They (p294+) sit in the
-   **late parquet shards**, so it fetches those directly with `huggingface_hub` + `pyarrow` and
-   reads the `audio` struct's `bytes`; clips are cached in `.refcache/` (gitignored), so re-runs
-   only fetch what's missing.
-2. For each speaker it runs the project's own `analyze()` on ~3 clips, averages them, writes
-   `public/reference.json`, and concatenates those clips into the preview mp3.
-3. It prints per-gender means + suggested thresholds; re-derive the bands in `zones.ts` from them.
+and the one place the reference pipeline lives (edit it there, not ad hoc). `--plan` only
+locates clips and prints the download size; `--accents American` builds a US-only corpus.
+1. It locates the registered speakers from the parquet footers' `speaker_id` statistics (no
+   full-shard scan), downloads only their row groups with `huggingface_hub` + `pyarrow`, and
+   caches clips in `.refcache/` (gitignored). A missing speaker or a failed clip is a hard
+   error unless `--allow-partial`.
+2. For each speaker it concatenates the four clips, runs the project's own `analyze()` once
+   over that audio (exactly like a take), writes `public/reference.json` with provenance, and
+   encodes the same audio as the preview mp3.
+3. It writes `docs/reference-stats.json` and prints the suggested `zones.ts` tables; paste the
+   ones you adopt and refresh the comment blocks above them.
 - To **add a metric to the comparison**: extend the per-speaker output + the `ReferenceVoice`
   type, regenerate, then add a `METRICS` entry with `ref:`.
 
@@ -291,9 +303,9 @@ and the one place the reference pipeline lives (edit it there, not ad hoc).
   frame (which folds in consonants/glides/mistracks and barely separated the sexes — old F2
   women 1639 vs men 1566), we take the **median over vowel nuclei** — frames that are voiced
   AND loud (within 10 dB of peak) AND have a plausible vowel F1 (~250–1000 Hz) AND are
-  formant-stable. On VCTK this separates F2 much better than the old frame-average (women
-  ~1450 vs men ~1281) though the ranges still **overlap at the edges** (female min 1280 vs
-  male max 1325), and F3 similarly (~2742 vs ~2523). See `F2_ZONES`/`F3_ZONES`.
+  formant-stable. On the rebuilt VCTK corpus (one fixed 5500 Hz ceiling, same pass as a
+  take) F3 is the steadier sex cue (women ~2882 vs men ~2682 Hz, d 1.7) and F2 overlaps more
+  (~1695 vs ~1578 Hz, d 1.1). See `F2_ZONES`/`F3_ZONES` and `docs/reference-stats.json`.
 - **Weight (vocal heaviness via source spectral tilt)** — a candidate cue alongside pitch and
   resonance, **shown as her own trend only** until it's validated. It's the voice **source** (the vocal folds themselves) vs.
   resonance, which is the **filter** (the vocal tract). Measured as **corrected H1\*–A3\***

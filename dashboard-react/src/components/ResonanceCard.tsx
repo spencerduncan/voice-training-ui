@@ -28,8 +28,9 @@ function womenOutsideFem(
 
 export function ResonanceCard({ r, onExpand, references = [] }: ResonanceCardProps) {
   const f = r.formants;
-  // reference.json's F2/F3 only count once they're measured the same way as
-  // the takes — the same switch that hides their ticks in the modal
+  // reference.json's F2/F3 only count while they're measured the same way as
+  // the takes (they are, since the Oct 2026 rebuild) — the same switch that
+  // would hide their ticks in the modal if the formant pipeline moved again
   const refsComparable = METRICS.f2.showRefs && METRICS.f3.showRefs;
   const onF2 = womenOutsideFem(references, F2_ZONES, (v) => v.formants?.f2_hz);
   const onF3 = womenOutsideFem(references, F3_ZONES, (v) => v.formants?.f3_hz);
@@ -76,17 +77,17 @@ export function ResonanceCard({ r, onExpand, references = [] }: ResonanceCardPro
       </p>
       <FormantGauge
         name="F2"
-        desc="main brightness cue"
+        desc="brightness cue"
         value={f.f2_hz}
         zones={F2_ZONES}
         lo={1100}
-        hi={2000}
+        hi={2200}
         metricKey="f2"
         onExpand={onExpand}
       />
       <FormantGauge
         name="F3"
-        desc="supports brightness"
+        desc="the steadier cue"
         value={f.f3_hz}
         zones={F3_ZONES}
         lo={2100}
@@ -121,8 +122,8 @@ export function ResonanceCard({ r, onExpand, references = [] }: ResonanceCardPro
         .{" "}
         {!refsComparable && (
           <>
-            Those reference voices are being re-measured with the current
-            analyzer, which reads formants a little differently, so treat the
+            Those reference voices were measured with an older version of the
+            analyzer, which read formants a little differently, so treat the
             bands as rough until they're redrawn.{" "}
           </>
         )}
