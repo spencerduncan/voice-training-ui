@@ -980,9 +980,18 @@ def write_text_atomic(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
-def load_recordings() -> list[dict]:
+def load_recordings(create: bool = True) -> list[dict]:
+    """The takes in recordings.json. On a first run, when it doesn't exist yet,
+    both copies (root + dashboard mirror) are created as [] so the dashboard and
+    git see the same empty garden; a missing mirror is restored from the root.
+    `create=False` only reads: the commands that analyse audio use it, so a
+    refused take leaves no file behind."""
     if not RECORDINGS_JSON.exists():
+        if create:
+            save_recordings([])
         return []
+    if create and not PUBLIC_RECORDINGS_JSON.exists():
+        write_text_atomic(PUBLIC_RECORDINGS_JSON, RECORDINGS_JSON.read_text(encoding="utf-8"))
     try:
         data = json.loads(RECORDINGS_JSON.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
@@ -1254,7 +1263,8 @@ def add_take(args: argparse.Namespace) -> None:
     if not src.is_file():
         raise TakeError(f"File not found: {src}")
 
-    recordings = load_recordings()
+    recordings = load_recordings(create=False)
+    first_take = not recordings
     sha = file_sha256(src)
     if not args.allow_duplicate and (dup := find_duplicate(recordings, sha)):
         raise TakeError(duplicate_message(dup, src))
@@ -1302,6 +1312,9 @@ def add_take(args: argparse.Namespace) -> None:
 
     print_summary(metrics, register)
     print("🌸 Saved. Run the React dashboard (npm run dev) and refresh.")
+    if first_take:
+        print("🔒 Your takes stay on this computer: audio, originals, analysis and "
+              "recordings.json are gitignored (README: “Your recordings stay on your machine”).")
 
 
 def replace_take(rec_id: int, args: argparse.Namespace) -> None:
@@ -1314,7 +1327,7 @@ def replace_take(rec_id: int, args: argparse.Namespace) -> None:
     src = Path(args.audio).expanduser()
     if not src.is_file():
         raise TakeError(f"File not found: {src}")
-    recordings = load_recordings()
+    recordings = load_recordings(create=False)
     entry = find_take(recordings, rec_id)
     sha = file_sha256(src)
     if not args.allow_duplicate and (dup := find_duplicate(recordings, sha, skip=rec_id)):
