@@ -360,7 +360,7 @@ export function App() {
           <ChartCard
             h="Weight"
             cap={`spectral tilt · ${WEIGHT_DIRECTION} · your own trend`}
-            color="#cf7fb0"
+            color="#8d7ba3" /* neutral lavender-grey: weight carries no pink/blue meaning */
             data={mk((r) => r.weight?.h1a3c_db ?? null)}
             bands={WEIGHT_ZONES}
           />
