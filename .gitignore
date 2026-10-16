@@ -37,3 +37,11 @@ recordings.json
 # the template is tracked.
 dashboard-react/src/annotations/entries/*
 !dashboard-react/src/annotations/entries/_example.tsx
+
+# analyze.py's take lifecycle: the id allocator sidecar, the trash that
+# --delete/--replace move files into, and its atomic-write temp files.
+recordings.meta.json
+trash/
+.*.tmp
+# each take's source file, byte for byte (what --backfill re-measures)
+originals/

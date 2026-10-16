@@ -16,21 +16,35 @@ Usage:
     uv run analyze.py "clip.wav" --label "pitch + bright resonance" --note "felt strained"
     uv run analyze.py "clip.wav" --label "..." --register-floor 130   # absolute floor
 
+Take lifecycle (see --help):
+    uv run analyze.py better.m4a --replace 3      # re-analyse take #3 from new audio
+    uv run analyze.py --relabel 3 --label "..." --note "..." --date 2026-10-01
+    uv run analyze.py --delete 3                  # entry + files -> trash/<timestamp>/
+    uv run analyze.py --backfill                  # re-measure every take (after an update)
+    uv run analyze.py --export backup.zip         # / --import backup.zip
+
 recordings.json (repo root) is the source of truth. The React app in
-dashboard-react/ reads everything from its public/ dir at runtime.
+dashboard-react/ reads everything from its public/ dir at runtime. Each take
+also keeps its source file, unchanged, in originals/ (what --backfill
+re-measures); public/audio/ gets a small mono mp3 for playback. Take numbers
+are never reused (recordings.meta.json remembers the next one).
 """
 
 from __future__ import annotations
 
 import argparse
 import atexit
+import hashlib
 import json
 import math
+import os
+import re
 import shutil
 import statistics
 import subprocess
 import sys
 import tempfile
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -68,6 +82,15 @@ def _use_utf8_console() -> None:
 
 _use_utf8_console()
 
+# Stamped on every take (`analyzer_version`) and every analysis/<id>.json, so the
+# dashboard and the analyze-voice skill can tell which pipeline measured a take.
+# Semver: MAJOR when a stored number changes meaning (takes from different majors
+# aren't comparable without --backfill), MINOR for new fields, PATCH for fixes
+# that leave every number alone. 2.0.0 is the October 2026 pipeline (take-relative
+# register floor, creak, fixed formant ceiling, p5/p95 pitch, cleaned pitch SD).
+# Takes without the field predate it.
+ANALYZER_VERSION = "2.0.0"
+
 ROOT = Path(__file__).resolve().parent
 RECORDINGS_JSON = ROOT / "recordings.json"  # source of truth
 
@@ -76,6 +99,17 @@ APP_PUBLIC = ROOT / "dashboard-react" / "public"
 PUBLIC_RECORDINGS_JSON = APP_PUBLIC / "recordings.json"
 AUDIO_DIR = APP_PUBLIC / "audio"
 ANALYSIS_DIR = APP_PUBLIC / "analysis"
+# Per-take annotation entries (entries/<NNN>.tsx), matched to takes by id alone.
+ENTRIES_DIR = ROOT / "dashboard-react" / "src" / "annotations" / "entries"
+# Sidecar for what only this CLI needs (next_id); recordings.json stays a list.
+RECORDINGS_META_JSON = ROOT / "recordings.meta.json"
+# --delete / --replace move files here instead of deleting them (gitignored).
+TRASH_DIR = ROOT / "trash"
+# Each take's source file, byte for byte, as originals/<NNN>.<ext> (gitignored).
+# Outside public/, so it is never served or bundled into a build; public/audio
+# gets a small mono mp3 instead. --backfill re-measures this file, so a re-run
+# reproduces the first run exactly (the mp3 would move pitch, F2 and loudness).
+ORIGINALS_DIR = ROOT / "originals"
 
 # Pitch search range (Hz). Wide enough for a feminizing voice without octave errors.
 PITCH_FLOOR = 75.0
@@ -121,6 +155,10 @@ CREAK_MIN_SUBHARM = 0.3
 CRASH_MIN_S = 0.2
 CRASH_BRIDGE_S = 0.15
 CRASH_BREAK_FRAMES = 3
+# A phrase "started"/"ended in register" unless most of its first ONSET_WINDOW_S /
+# last ENDING_WINDOW_S of non-creak voicing is part of a crash.
+ONSET_WINDOW_S = 0.08
+ENDING_WINDOW_S = 0.12
 # Phrase segmentation: "silent" = intensity more than PHRASE_SILENCE_DB below the
 # take's 95th-percentile frame (a robust speech level; the old code used the
 # single loudest frame). Sounding stretches split by < PHRASE_MIN_GAP_S are one
@@ -144,6 +182,15 @@ OCTAVE_DOWN_RATIO = 0.55
 WEIGHT_MIN_F0 = 100.0
 MIN_WEIGHT_FRAMES = 20
 WEIGHT_MAX_FRAMES = 600
+# A take must be at least MIN_TAKE_S long and have MIN_VOICED_FRAMES voiced frames
+# on the register model's 10 ms grid (half a second of voice) before anything is
+# saved. Silence, white/pink/brown noise and a 50 Hz hum give 0-5 voiced frames;
+# a single read sentence gives ~200, the 20-25 s reference previews ~850-1150.
+# Fewer than 50 is also below what melody (MELODY_MIN_FRAMES) needs.
+MIN_TAKE_S = 1.0
+MIN_VOICED_FRAMES = 50
+# --register-floor must be a plausible speaking pitch (Hz).
+REGISTER_FLOOR_RANGE = (50.0, 400.0)
 
 
 def clean(value: float | None) -> float | None:
@@ -185,22 +232,63 @@ def _cleanup_temp_wavs() -> None:
 atexit.register(_cleanup_temp_wavs)
 
 
+class TakeError(Exception):
+    """Something about the request or the audio, said kindly. main() prints it
+    and exits non-zero. Raised before the write phase, nothing has been touched."""
+
+
+FFMPEG_MISSING = ("ffmpeg not found; install it (Windows: winget install Gyan.FFmpeg · "
+                  "macOS: brew install ffmpeg · Linux: sudo apt install ffmpeg), then open "
+                  "a new terminal so it's on PATH.")
+
+
+def run_ffmpeg(src: Path, args: list[str]) -> None:
+    """Run ffmpeg on `src`, turning its failures into a TakeError a person can
+    act on: a missing ffmpeg says how to install it; a file ffmpeg can't read
+    shows the last lines of what ffmpeg said, not a Python traceback."""
+    try:
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                        "-i", str(src), *args], check=True, capture_output=True)
+    except FileNotFoundError:
+        raise TakeError(FFMPEG_MISSING) from None
+    except subprocess.CalledProcessError as e:
+        said = (e.stderr or b"").decode("utf-8", errors="replace").strip().splitlines()
+        tail = "\n   ".join(said[-4:]) or f"(no message; exit code {e.returncode})"
+        raise TakeError(f"ffmpeg couldn't read {src.name}. It said:\n   {tail}") from None
+
+
+def _temp_dir() -> Path:
+    tmp_dir = tempfile.mkdtemp(prefix="voice-garden-")
+    _TEMP_WAV_DIRS.append(tmp_dir)
+    return Path(tmp_dir)
+
+
 def to_wav_mono(src: Path) -> Path:
     """Convert any audio file to a temp mono WAV for analysis via ffmpeg.
 
     The returned path stays valid for the rest of the process; its temp dir is
     removed at exit, so a long run (build_reference_set.py converts ~60 clips)
-    no longer leaves a pile of orphaned directories behind.
+    no longer leaves a pile of orphaned directories behind. ffmpeg problems
+    raise TakeError (see run_ffmpeg()).
     """
-    tmp_dir = tempfile.mkdtemp(prefix="voice-garden-")
-    _TEMP_WAV_DIRS.append(tmp_dir)
-    tmp = Path(tmp_dir) / "analysis.wav"
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", str(src), "-ac", "1", "-ar", "44100", str(tmp)],
-        check=True,
-        capture_output=True,
-    )
+    tmp = _temp_dir() / "analysis.wav"
+    run_ffmpeg(src, ["-ac", "1", "-ar", "44100", str(tmp)])
     return tmp
+
+
+# The dashboard's playback copy of every take: mono mp3 at this bitrate, cover
+# art and metadata (recorder app, location, ...) dropped. A 3-minute stereo 48 kHz
+# WAV is ~35 MB; this is ~2 MB, and voice loses nothing audible.
+PLAYBACK_BITRATE = "96k"
+
+
+def encode_playback(src: Path) -> Path:
+    """A temp mono mp3 of `src` for public/audio/ (see PLAYBACK_BITRATE). Made
+    before anything is written, so an ffmpeg failure leaves no files behind."""
+    out = _temp_dir() / "playback.mp3"
+    run_ffmpeg(src, ["-vn", "-map_metadata", "-1", "-ac", "1",
+                     "-c:a", "libmp3lame", "-b:a", PLAYBACK_BITRATE, str(out)])
+    return out
 
 
 def _intensity(sound: parselmouth.Sound) -> parselmouth.Intensity:
@@ -526,13 +614,18 @@ def analyze(sound: parselmouth.Sound,
     # and creak runs (creak_frames(), the register model's rule) are dropped —
     # not the raw min/max, which one tracker octave jump or one creaky frame
     # decides. min_hz/max_hz/range_hz carry these same values.
-    p5 = p95 = None
+    # sd_hz is the SD over those same cleaned frames (Praat's formula: sample SD,
+    # n - 1, over frames); Praat's own SD over every voiced frame, octave jumps
+    # and creak included, is kept as sd_raw_hz (it was sd_hz before 2.0.0).
+    p5 = p95 = sd_clean = None
     if len(voiced_f0):
         med = float(np.median(voiced_f0))
         kept = (voiced & ~creak_frames(pitch, med)
                 & (f0_track <= OCTAVE_UP_RATIO * med) & (f0_track >= OCTAVE_DOWN_RATIO * med))
         if kept.any():
             p5, p95 = (float(v) for v in np.percentile(f0_track[kept], [5, 95]))
+        if kept.sum() >= 2:
+            sd_clean = float(np.std(f0_track[kept], ddof=1))
 
     # ---- Formants (resonance) + weight: both read the same vowel nuclei ----
     nuclei = vowel_nuclei(sound, pitch, intensity, formant)
@@ -568,7 +661,8 @@ def analyze(sound: parselmouth.Sound,
             "min_hz": clean(p5),
             "max_hz": clean(p95),
             "range_hz": clean(p95 - p5) if p5 is not None and p95 is not None else None,
-            "sd_hz": clean(sd_f0),
+            "sd_hz": clean(sd_clean),
+            "sd_raw_hz": clean(sd_f0),
             "p5_hz": clean(p5),
             "p95_hz": clean(p95),
         },
@@ -779,8 +873,8 @@ def analyze_register(sound: parselmouth.Sound, floor: float | None = None,
         if not len(m_idx):  # all creak: nothing to say about register here
             continue
         tm = times[m_idx]
-        onset = m_idx[tm - tm[0] <= 0.08]
-        offset = m_idx[tm[-1] - tm <= 0.12]
+        onset = m_idx[tm - tm[0] <= ONSET_WINDOW_S]
+        offset = m_idx[tm[-1] - tm <= ENDING_WINDOW_S]
         onset_hz = float(np.mean(f0[onset]))
         offset_hz = float(np.mean(f0[offset]))
         phrases.append({
@@ -816,6 +910,15 @@ def analyze_register(sound: parselmouth.Sound, floor: float | None = None,
     n_melody = int(melody.sum())
     enough = n_melody >= MELODY_MIN_FRAMES and n_melody >= MELODY_MIN_SHARE * n_voiced
     in_register_semitones_sd = clean(sd([hz_to_st(h) for h in f0[melody]])) if enough else None
+    melody_null_reason = None
+    if in_register_semitones_sd is None:
+        if n_melody < MELODY_MIN_FRAMES:
+            melody_null_reason = f"too few steady frames: {n_melody} < {MELODY_MIN_FRAMES}"
+        elif n_melody < MELODY_MIN_SHARE * n_voiced:
+            melody_null_reason = (f"too little of the voicing is steady: "
+                                  f"{100 * n_melody / n_voiced:.0f}% < {MELODY_MIN_SHARE:.0%}")
+        else:
+            melody_null_reason = "no spread could be measured"
     landed = sum(p["ended_in_register"] for p in phrases)
     landed_pct = round(100 * landed / len(phrases)) if phrases else None
 
@@ -831,13 +934,20 @@ def analyze_register(sound: parselmouth.Sound, floor: float | None = None,
         "semitones_sd": semitones_sd,
         "in_register_semitones_sd": in_register_semitones_sd,
         "melody_frames": n_melody,
+        "melody_null_reason": melody_null_reason,
         "onset_sub_pct": pct(bins["onset"]),
         "mid_sub_pct": pct(bins["mid"]),
         "offset_sub_pct": pct(bins["offset"]),
         "phrases_landed_pct": landed_pct,
         "n_phrases": len(phrases),
+        # The thresholds behind the numbers above, so the UI can quote them.
+        "crash_min_s": CRASH_MIN_S,
+        "crash_bridge_s": CRASH_BRIDGE_S,
+        "onset_window_s": ONSET_WINDOW_S,
+        "ending_window_s": ENDING_WINDOW_S,
     }
     detail = {
+        "analyzer_version": ANALYZER_VERSION,
         "register_floor_hz": round(floor, 1),
         "semitone_ref_hz": SEMITONE_REF,
         "duration_s": round(duration, 2),
@@ -851,135 +961,284 @@ def analyze_register(sound: parselmouth.Sound, floor: float | None = None,
     return detail, headline
 
 
-def load_recordings() -> list[dict]:
-    if RECORDINGS_JSON.exists():
-        return json.loads(RECORDINGS_JSON.read_text())
-    return []
+def now_iso() -> str:
+    """Local time with its UTC offset, to the second — `analyzed_at`. (`date`
+    stays the take's own day, which --date can set.)"""
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+# ---- the take store -----------------------------------------------------------
+# recordings.json stays a plain list, because that is what the dashboard reads.
+# What only this CLI needs lives beside it in recordings.meta.json: `next_id`,
+# so a number is never handed out twice. A reused number would pick up the old
+# take's annotation entry (entries/<NNN>.tsx is matched by id alone).
+
+def rel(path: Path) -> str:
+    """`path` relative to the repo root, with forward slashes, for messages."""
+    try:
+        return path.resolve().relative_to(ROOT).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def write_text_atomic(path: Path, text: str) -> None:
+    """Write through a temp file in the same folder and rename it over `path`, so
+    the dashboard (or a crash mid-write) never sees half a file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def load_recordings(create: bool = True) -> list[dict]:
+    """The takes in recordings.json. On a first run, when it doesn't exist yet,
+    both copies (root + dashboard mirror) are created as [] so the dashboard and
+    git see the same empty garden; a missing mirror is restored from the root.
+    `create=False` only reads: the commands that analyse audio use it, so a
+    refused take leaves no file behind."""
+    if not RECORDINGS_JSON.exists():
+        if create:
+            save_recordings([])
+        return []
+    if create and not PUBLIC_RECORDINGS_JSON.exists():
+        write_text_atomic(PUBLIC_RECORDINGS_JSON, RECORDINGS_JSON.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(RECORDINGS_JSON.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise TakeError(f"{rel(RECORDINGS_JSON)} isn't valid JSON ({e}). Fix it, or restore "
+                        "it from an --export backup, before changing any takes.") from None
+    if not isinstance(data, list) or not all(isinstance(r, dict) for r in data):
+        raise TakeError(f"{rel(RECORDINGS_JSON)} should be a list of takes. Fix it, or restore "
+                        "it from an --export backup, before changing any takes.")
+    return data
 
 
 def save_recordings(recordings: list[dict]) -> None:
     payload = json.dumps(recordings, indent=2)
-    RECORDINGS_JSON.write_text(payload)
-    APP_PUBLIC.mkdir(parents=True, exist_ok=True)
-    PUBLIC_RECORDINGS_JSON.write_text(payload)
+    write_text_atomic(RECORDINGS_JSON, payload)
+    write_text_atomic(PUBLIC_RECORDINGS_JSON, payload)
 
 
-def backfill(register_floor: float | None = None,
-             formant_ceiling: float = FORMANT_CEILING) -> None:
-    """Recompute metrics for every existing recording from its stored audio,
-    preserving id/label/note/date. Use after adding a new metric (e.g. weight).
-
-    The register floor is re-derived under the current default (relative to each
-    take's own median) unless `register_floor` (--register-floor) forces one.
-    Entries written before floor_mode existed all carry the old fixed 130 Hz
-    default, which is exactly what this re-derives; a floor that was set
-    explicitly with --register-floor on a newer entry (floor_mode "absolute")
-    is kept.
-    """
-    recordings = load_recordings()
-    if not recordings:
-        raise SystemExit("No recordings to backfill.")
-    ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
-    for entry in recordings:
-        src = AUDIO_DIR / Path(entry["audio"]).name
-        if not src.exists():
-            print(f"⚠️  #{entry['id']}: audio not found ({src}) — skipped")
-            continue
-        wav = to_wav_mono(src) if src.suffix.lower() != ".wav" else src
-        sound = parselmouth.Sound(str(wav))
-        old = entry.get("register") or {}
-        floor = register_floor
-        if floor is None and old.get("floor_mode") == "absolute":
-            floor = old.get("floor_hz")
-        intensity = _intensity(sound)  # shared by both analyses below
-        entry.update(analyze(sound, intensity, formant_ceiling))
-        detail, register = analyze_register(sound, floor, intensity)
-        entry["register"] = register
-        (ANALYSIS_DIR / f"{entry['id']}.json").write_text(json.dumps(detail))
-        print(f"✅ #{entry['id']} backfilled — weight {entry['weight']}")
-    recordings.sort(key=lambda r: r["id"])
-    save_recordings(recordings)
-    print("🌸 Backfill complete.")
+def load_meta() -> dict:
+    """recordings.meta.json, or {} when it's missing or unreadable (the id
+    scan in next_free_id() still keeps numbers unique without it)."""
+    try:
+        meta = json.loads(RECORDINGS_META_JSON.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        print(f"⚠️  {rel(RECORDINGS_META_JSON)} is unreadable; working the next take number "
+              "out from the files instead.")
+        return {}
+    return meta if isinstance(meta, dict) else {}
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Analyze a voice training recording 🌸")
-    parser.add_argument("audio", nargs="?", help="Path to the audio file (mp3/m4a/wav/...)")
-    parser.add_argument("--label", help="What you were trying this take")
-    parser.add_argument("--note", default="", help="Optional extra note")
-    parser.add_argument("--date", default="", help="Override date (YYYY-MM-DD); defaults to today")
-    parser.add_argument(
-        "--register-floor", type=float, default=None,
-        help="Absolute register floor in Hz. Default: relative to the take — "
-             f"{REGISTER_FLOOR_ST:g} semitones below its own median pitch. "
-             "With --backfill, applies to every recording.",
-    )
-    parser.add_argument(
-        "--formant-ceiling", type=float, default=FORMANT_CEILING,
-        help=f"Maximum-formant ceiling in Hz (default {FORMANT_CEILING:g}). Keep it the "
-             "same across takes so they stay comparable; --backfill uses it for all.",
-    )
-    parser.add_argument(
-        "--id", type=int, default=None,
-        help="Force this recording id (e.g. insert an older take as #1). Default: next available.",
-    )
-    parser.add_argument(
-        "--backfill", action="store_true",
-        help="Recompute metrics for ALL existing recordings from their stored audio "
-             "(preserves id/label/note/date). Use after adding a new metric.",
-    )
-    args = parser.parse_args()
+def reserve_id(rec_id: int) -> None:
+    """Record that `rec_id` has been used, so next_free_id() stays past it even
+    after the take is deleted and the trash emptied."""
+    meta = load_meta()
+    stored = meta.get("next_id")
+    if not isinstance(stored, int) or stored <= rec_id:
+        meta["next_id"] = rec_id + 1
+        meta["about"] = ("analyze.py's take-number allocator: numbers are never reused, "
+                         "so a deleted take's annotation entry can't attach to a new take.")
+        write_text_atomic(RECORDINGS_META_JSON, json.dumps(meta, indent=2))
 
-    if args.backfill:
-        backfill(args.register_floor, args.formant_ceiling)
-        return
 
-    if not args.audio:
-        raise SystemExit("❌ Provide an audio file, or use --backfill.")
-    if not args.label:
-        raise SystemExit("❌ --label is required when analyzing a new recording.")
+_ID_FILE = re.compile(r"(\d+)\.[A-Za-z0-9]+", re.ASCII)  # 003.mp3, 3.json, 003.tsx
 
-    src = Path(args.audio).expanduser()
-    if not src.exists():
-        raise SystemExit(f"❌ File not found: {src}")
 
-    AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-    ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
-    recordings = load_recordings()
-    if args.id is not None:
-        if any(r["id"] == args.id for r in recordings):
-            raise SystemExit(f"❌ id {args.id} already exists — pick another or renumber first.")
-        rec_id = args.id
-    else:
-        rec_id = (max((r["id"] for r in recordings), default=0)) + 1
+def _id_of(name: str) -> int | None:
+    m = _ID_FILE.fullmatch(name)
+    return int(m.group(1)) if m else None
 
-    needs_convert = src.suffix.lower() != ".wav"
-    wav_path = to_wav_mono(src) if needs_convert else src
-    print(f"🎧 Analyzing entry #{rec_id}: {src.name} ...")
-    sound = parselmouth.Sound(str(wav_path))
+
+TAKE_DIRS = (AUDIO_DIR, ANALYSIS_DIR, ENTRIES_DIR, ORIGINALS_DIR)
+
+
+def take_files(rec_id: int) -> list[Path]:
+    """Every file on disk that belongs to take `rec_id`: its playback audio,
+    analysis detail, annotation entry and original."""
+    return [p for d in TAKE_DIRS if d.is_dir()
+            for p in sorted(d.iterdir()) if p.is_file() and _id_of(p.name) == rec_id]
+
+
+def ids_in_use(recordings: list[dict]) -> set[int]:
+    """Every take number with a trace anywhere: recordings.json, the audio,
+    analysis and annotation-entry folders, and the trash."""
+    ids = {r["id"] for r in recordings if isinstance(r.get("id"), int)}
+    for d in TAKE_DIRS:
+        if d.is_dir():
+            ids |= {i for p in d.iterdir() if (i := _id_of(p.name)) is not None}
+    if TRASH_DIR.is_dir():
+        for p in TRASH_DIR.rglob("*"):
+            if (i := _id_of(p.name)) is not None:
+                ids.add(i)
+            elif p.name == "entry.json":
+                try:
+                    i = json.loads(p.read_text(encoding="utf-8")).get("id")
+                except (OSError, ValueError, AttributeError):
+                    continue
+                if isinstance(i, int):
+                    ids.add(i)
+    return ids
+
+
+def next_free_id(recordings: list[dict]) -> int:
+    """One past the highest take number ever used (see ids_in_use() and
+    reserve_id()). Deleted numbers stay retired."""
+    stored = load_meta().get("next_id")
+    stored = stored if isinstance(stored, int) else 1
+    return max(stored, max(ids_in_use(recordings), default=0) + 1)
+
+
+def _by_id(entry: dict) -> float:
+    """Sort key: by take number; a hand-broken entry without one sorts last
+    instead of crashing the save."""
+    rec_id = entry.get("id")
+    return rec_id if isinstance(rec_id, int) else math.inf
+
+
+def describe(entry: dict) -> str:
+    return f"#{entry.get('id')} “{entry.get('label', '')}” ({entry.get('date') or 'no date'})"
+
+
+def find_take(recordings: list[dict], rec_id: int) -> dict:
+    for r in recordings:
+        if r.get("id") == rec_id:
+            return r
+    ids = ", ".join(f"#{r.get('id')}" for r in recordings) or "none yet"
+    raise TakeError(f"There's no take #{rec_id}. Takes here: {ids}.")
+
+
+def file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def take_sha256(entry: dict) -> str | None:
+    """The hash of the file a take was made from. Takes from before
+    `source_sha256` existed kept a byte-for-byte copy of their source as the
+    playback file, so for those the playback file's hash is the same thing."""
+    if isinstance(entry.get("source_sha256"), str):
+        return entry["source_sha256"]
+    audio = entry.get("audio")
+    if isinstance(audio, str) and (p := AUDIO_DIR / Path(audio).name).is_file():
+        return file_sha256(p)
+    return None
+
+
+def find_duplicate(recordings: list[dict], sha: str, skip: int | None = None) -> dict | None:
+    return next((r for r in recordings if r.get("id") != skip and take_sha256(r) == sha), None)
+
+
+def new_trash_dir(why: str) -> Path:
+    """A fresh trash/<timestamp>-<why>/ folder. trash/ is gitignored and never
+    emptied by this script."""
+    base = TRASH_DIR / f"{datetime.now():%Y%m%d-%H%M%S}-{why}"
+    path, n = base, 2
+    while path.exists():
+        path, n = base.with_name(f"{base.name}-{n}"), n + 1
+    path.mkdir(parents=True)
+    return path
+
+
+def move_to_trash(files: list[Path], trash: Path) -> list[str]:
+    """Move each file to trash/<...>/<its folder name>/<its name>."""
+    moved = []
+    for p in files:
+        dest = trash / p.parent.name / p.name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(p), str(dest))
+        moved.append(f"{p.parent.name}/{p.name}")
+    return moved
+
+
+def read_sound(src: Path) -> parselmouth.Sound:
+    """A WAV is read as-is (as it always was); anything else, or a WAV Praat
+    can't read, goes through ffmpeg to a mono 44.1 kHz WAV first."""
+    if src.suffix.lower() == ".wav":
+        try:
+            return parselmouth.Sound(str(src))
+        except parselmouth.PraatError:
+            pass
+    wav = to_wav_mono(src)
+    try:
+        return parselmouth.Sound(str(wav))
+    except parselmouth.PraatError:
+        raise TakeError(f"Couldn't read any audio from {src.name}.") from None
+
+
+def check_usable(src: Path, metrics: dict, detail: dict) -> None:
+    """Refuse a take too short or too silent to measure (see MIN_TAKE_S and
+    MIN_VOICED_FRAMES), before anything is written."""
+    duration = metrics.get("duration_s") or 0.0
+    if duration < MIN_TAKE_S:
+        raise TakeError(f"{src.name} is only {duration:.2f} s long; a take needs at least "
+                        f"{MIN_TAKE_S:g} s of audio. Nothing was saved.")
+    voiced = sum(hz is not None for hz in detail["frames"]["hz"])
+    if voiced < MIN_VOICED_FRAMES:
+        raise TakeError(
+            f"I could hardly hear a voice in {src.name}: {voiced * detail['time_step']:.2f} s of "
+            f"voicing, and a take needs at least {MIN_VOICED_FRAMES * detail['time_step']:g} s. "
+            "Was the mic muted, or the wrong input picked? Nothing was saved.")
+
+
+def measure_file(src: Path, floor: float | None,
+                 formant_ceiling: float) -> tuple[dict, dict, dict]:
+    """Read one audio file, run both analyses and check the take is usable:
+    (metrics, detail, register). Raises TakeError; writes nothing."""
+    sound = read_sound(src)
     intensity = _intensity(sound)  # shared by both analyses below
-    metrics = analyze(sound, intensity, args.formant_ceiling)
-    detail, register = analyze_register(sound, args.register_floor, intensity)
+    metrics = analyze(sound, intensity, formant_ceiling)
+    detail, register = analyze_register(sound, floor, intensity)
+    check_usable(src, metrics, detail)
+    return metrics, detail, register
 
-    playback_name = f"{rec_id:03d}{src.suffix.lower()}"
-    shutil.copy2(src, AUDIO_DIR / playback_name)
-    (ANALYSIS_DIR / f"{rec_id}.json").write_text(json.dumps(detail))
 
-    entry = {
-        "id": rec_id,
-        "label": args.label,
-        "note": args.note,
-        "date": args.date or datetime.now().strftime("%Y-%m-%d"),
-        "source_file": src.name,
-        "audio": f"audio/{playback_name}",
-        "detail": f"analysis/{rec_id}.json",
-        **metrics,
-        "register": register,
-    }
-    recordings.append(entry)
-    recordings.sort(key=lambda r: r["id"])
-    save_recordings(recordings)
+def install_playback(playback: Path, rec_id: int) -> str:
+    """Move an encode_playback() file into public/audio/ as <NNN>.mp3; returns
+    the entry's `audio` path."""
+    name = f"{rec_id:03d}{playback.suffix.lower()}"
+    AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(playback), str(AUDIO_DIR / name))
+    return f"audio/{name}"
 
+
+def keep_original(src: Path, rec_id: int) -> Path:
+    """Copy the take's source file, unchanged, to originals/<NNN>.<ext>."""
+    ext = src.suffix.lower()
+    if not re.fullmatch(r"\.[a-z0-9]{1,5}", ext, re.ASCII):
+        ext = ".audio"
+    ORIGINALS_DIR.mkdir(parents=True, exist_ok=True)
+    dest = ORIGINALS_DIR / f"{rec_id:03d}{ext}"
+    shutil.copy2(src, dest)
+    return dest
+
+
+def measured_file(entry: dict) -> Path | None:
+    """The file a take's numbers come from: its original when kept, else (takes
+    from before originals/ existed) its playback copy, which for those takes
+    is the source file byte for byte."""
+    rec_id, audio = entry.get("id"), entry.get("audio")
+    if isinstance(rec_id, int) and ORIGINALS_DIR.is_dir():
+        for p in sorted(ORIGINALS_DIR.iterdir()):
+            if p.is_file() and _id_of(p.name) == rec_id:
+                return p
+    if isinstance(audio, str):
+        return AUDIO_DIR / Path(audio).name
+    return None
+
+
+def write_detail(rec_id: int, detail: dict) -> str:
+    write_text_atomic(ANALYSIS_DIR / f"{rec_id}.json", json.dumps(detail))
+    return f"analysis/{rec_id}.json"
+
+
+def print_summary(metrics: dict, register: dict) -> None:
     p, f = metrics["pitch"], metrics["formants"]
     print(
         f"✅ Done!  pitch ~{p['mean_hz']} Hz, F1/F2/F3 = "
@@ -994,7 +1253,541 @@ def main() -> None:
         f"{register['mid_sub_pct']}/{register['offset_sub_pct']}% "
         f"(onset/mid/offset) · creak {register['creak_pct']}%"
     )
+
+
+def duplicate_message(dup: dict, src: Path) -> str:
+    return (f"This file is already take {describe(dup)}. To re-analyse that take in place, "
+            f"run with --replace {dup['id']} \"{src}\"; to add it as a new take anyway, "
+            "add --allow-duplicate.")
+
+
+# ---- commands -----------------------------------------------------------------
+def add_take(args: argparse.Namespace) -> None:
+    """The plain run: analyse a new recording and add it as the next take."""
+    if not args.audio:
+        raise TakeError("Give an audio file to analyse (see --help for --backfill, "
+                        "--replace, --delete, --relabel, --export and --import).")
+    if not args.label:
+        raise TakeError("--label is required for a new take: say what you were practising.")
+    src = Path(args.audio).expanduser()
+    if not src.is_file():
+        raise TakeError(f"File not found: {src}")
+
+    recordings = load_recordings(create=False)
+    first_take = not recordings
+    sha = file_sha256(src)
+    if not args.allow_duplicate and (dup := find_duplicate(recordings, sha)):
+        raise TakeError(duplicate_message(dup, src))
+    if args.id is None:
+        rec_id = next_free_id(recordings)
+    else:
+        rec_id = args.id
+        if any(r.get("id") == rec_id for r in recordings):
+            taken = find_take(recordings, rec_id)
+            raise TakeError(
+                f"Take {describe(taken)} already exists. To swap in new audio for it, run "
+                f"--replace {rec_id} <audio>; to remove it, --delete {rec_id}; or leave out "
+                f"--id and this take gets the next free number (#{next_free_id(recordings)}).")
+        if leftovers := take_files(rec_id):
+            raise TakeError(
+                f"Files from an earlier take #{rec_id} are still here "
+                f"({', '.join(rel(p) for p in leftovers)}); a new take #{rec_id} would pick "
+                "them up. Move them away first, or choose another --id.")
+
+    print(f"🎧 Analyzing entry #{rec_id}: {src.name} ...")
+    metrics, detail, register = measure_file(src, args.register_floor, args.formant_ceiling)
+    playback = encode_playback(src)
+
+    # ---- write phase: nothing above has touched a file -----------------------
+    reserve_id(rec_id)
+    keep_original(src, rec_id)
+    audio = install_playback(playback, rec_id)
+    entry = {
+        "id": rec_id,
+        "label": args.label,
+        "note": args.note or "",
+        "date": args.date or datetime.now().strftime("%Y-%m-%d"),
+        "source_file": src.name,
+        "source_sha256": sha,
+        "audio": audio,
+        "detail": write_detail(rec_id, detail),
+        "analyzer_version": ANALYZER_VERSION,
+        "analyzed_at": now_iso(),
+        **metrics,
+        "register": register,
+    }
+    recordings.append(entry)
+    recordings.sort(key=_by_id)
+    save_recordings(recordings)
+
+    print_summary(metrics, register)
     print("🌸 Saved. Run the React dashboard (npm run dev) and refresh.")
+    if first_take:
+        print("🔒 Your takes stay on this computer: audio, originals, analysis and "
+              "recordings.json are gitignored (README: “Your recordings stay on your machine”).")
+
+
+def replace_take(rec_id: int, args: argparse.Namespace) -> None:
+    """--replace ID <audio>: re-analyse take `rec_id` from new audio, in place.
+    Keeps its id, label, note and date (unless --label/--note/--date are given)
+    and its annotation entry; the old audio and analysis go to the trash."""
+    if not args.audio:
+        raise TakeError(f"--replace {rec_id} needs the audio file to analyse: "
+                        f"analyze.py <audio> --replace {rec_id}")
+    src = Path(args.audio).expanduser()
+    if not src.is_file():
+        raise TakeError(f"File not found: {src}")
+    recordings = load_recordings(create=False)
+    entry = find_take(recordings, rec_id)
+    sha = file_sha256(src)
+    if not args.allow_duplicate and (dup := find_duplicate(recordings, sha, skip=rec_id)):
+        raise TakeError(f"This file is already take {describe(dup)}; replacing #{rec_id} with "
+                        "it would make two copies of one take. Add --allow-duplicate if "
+                        "that's really what you want.")
+    # Same floor rule as --backfill: an explicitly set (absolute) floor is kept.
+    floor = args.register_floor
+    old_register = entry.get("register") or {}
+    if floor is None and old_register.get("floor_mode") == "absolute":
+        floor = old_register.get("floor_hz")
+
+    print(f"🎧 Re-analyzing entry #{rec_id} from {src.name} ...")
+    metrics, detail, register = measure_file(src, floor, args.formant_ceiling)
+    playback = encode_playback(src)
+    # Staged too: `src` may be this take's own original (re-measuring with
+    # another --register-floor), which is about to move to the trash.
+    staged = _temp_dir() / src.name
+    shutil.copy2(src, staged)
+
+    # ---- write phase ---------------------------------------------------------
+    trash = new_trash_dir(f"replaced-take{rec_id:03d}")
+    write_text_atomic(trash / "entry.json", json.dumps(entry, indent=2))
+    old_files = [p for p in take_files(rec_id) if p.parent != ENTRIES_DIR]
+    moved = move_to_trash(old_files, trash)
+    keep_original(staged, rec_id)
+    entry.update({
+        "label": args.label if args.label is not None else entry.get("label", ""),
+        "note": args.note if args.note is not None else entry.get("note", ""),
+        "date": args.date if args.date is not None else entry.get("date", ""),
+        "source_file": src.name,
+        "source_sha256": sha,
+        "audio": install_playback(playback, rec_id),
+        "detail": write_detail(rec_id, detail),
+        "analyzer_version": ANALYZER_VERSION,
+        "analyzed_at": now_iso(),
+        **metrics,
+        "register": register,
+    })
+    save_recordings(recordings)
+
+    print_summary(metrics, register)
+    print(f"🧺 The old {' and '.join(moved) or 'entry'} went to {rel(trash)}/.")
+    entry_file = ENTRIES_DIR / f"{rec_id:03d}.tsx"
+    if entry_file.exists():
+        print(f"📝 {rel(entry_file)} was written for the old audio. Re-read it against the "
+              "new numbers before trusting its notes.")
+    print("🌸 Saved. Refresh the dashboard.")
+
+
+def delete_take(rec_id: int) -> None:
+    """--delete ID: take a take out of the garden. Its entry, audio, analysis
+    and annotation entry move to trash/<timestamp>-deleted-takeNNN/ (nothing is
+    deleted for good), and its number is retired."""
+    recordings = load_recordings()
+    entry = find_take(recordings, rec_id)
+    trash = new_trash_dir(f"deleted-take{rec_id:03d}")
+    write_text_atomic(trash / "entry.json", json.dumps(entry, indent=2))
+    reserve_id(rec_id)
+    recordings.remove(entry)
+    save_recordings(recordings)
+    moved = move_to_trash(take_files(rec_id), trash)
+    print(f"🧺 Take {describe(entry)} moved to {rel(trash)}/ "
+          f"({', '.join(['entry.json', *moved])}).")
+    print(f"   Nothing is gone for good: empty trash/ yourself when you're sure. "
+          f"Take numbers are never reused, so the next new take is "
+          f"#{next_free_id(recordings)}.")
+
+
+def relabel_take(rec_id: int, label: str | None, note: str | None, date: str | None) -> None:
+    """--relabel ID: change a take's label, note and/or date. Nothing is
+    re-measured."""
+    changes = {k: v for k, v in (("label", label), ("note", note), ("date", date))
+               if v is not None}
+    if not changes:
+        raise TakeError(f"--relabel {rec_id} needs at least one of --label, --note, --date.")
+    recordings = load_recordings()
+    entry = find_take(recordings, rec_id)
+    said = [f"{k} “{entry.get(k, '')}” → “{v}”" for k, v in changes.items()
+            if entry.get(k) != v]
+    if not said:
+        print(f"Take #{rec_id} already says that; nothing to change.")
+        return
+    entry.update(changes)
+    save_recordings(recordings)
+    print(f"✏️  Take #{rec_id}: " + "; ".join(said) + ".")
+
+
+EXPORT_FORMAT = "voice-garden-export"
+EXPORT_FORMAT_VERSION = 1
+# What a zip may carry into each folder, by extension.
+IMPORT_EXTS = {
+    "audio": {"mp3", "m4a", "wav", "ogg", "oga", "opus", "flac", "webm", "aac", "mp4"},
+    "analysis": {"json"},
+    "entries": {"tsx"},
+    "originals": None,  # any short alphanumeric extension: kept, never served or run
+}
+
+
+def _export_dirs() -> dict[str, Path]:
+    return {"audio": AUDIO_DIR, "analysis": ANALYSIS_DIR, "entries": ENTRIES_DIR,
+            "originals": ORIGINALS_DIR}
+
+
+def export_garden(out: Path) -> None:
+    """--export out.zip: one zip holding everything personal: recordings.json,
+    recordings.meta.json, audio/, analysis/, entries/ and a manifest.json.
+    The dashboard's public/recordings.json is a copy of recordings.json, so it
+    isn't stored twice; --import writes both."""
+    out = out.expanduser()
+    if out.suffix.lower() != ".zip":
+        raise TakeError(f"--export needs a .zip path (got {out}).")
+    if out.exists():
+        raise TakeError(f"{out} already exists; pick a new name so no backup is overwritten.")
+    recordings = load_recordings()
+    files = [(f"{folder}/{p.name}", p) for folder, d in _export_dirs().items() if d.is_dir()
+             for p in sorted(d.iterdir()) if p.is_file() and _id_of(p.name) is not None]
+    manifest = {
+        "format": EXPORT_FORMAT,
+        "format_version": EXPORT_FORMAT_VERSION,
+        "analyzer_version": ANALYZER_VERSION,
+        "exported_at": now_iso(),
+        "next_id": next_free_id(recordings),
+        "takes": [{"id": r.get("id"), "label": r.get("label"),
+                   "analyzer_version": r.get("analyzer_version")} for r in recordings],
+        "files": ["recordings.json", "recordings.meta.json", *(a for a, _ in files)],
+    }
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_name(f".{out.name}.tmp")
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("manifest.json", json.dumps(manifest, indent=2))
+        z.writestr("recordings.json", json.dumps(recordings, indent=2))
+        z.writestr("recordings.meta.json", json.dumps(load_meta(), indent=2))
+        for arcname, path in files:
+            z.write(path, arcname)
+    os.replace(tmp, out)
+    counts = ", ".join(f"{sum(a.startswith(f + '/') for a, _ in files)} {f}"
+                       for f in _export_dirs())
+    print(f"📦 Exported {len(recordings)} take(s) ({counts}) to "
+          f"{out} ({out.stat().st_size / 1e6:.1f} MB). It's your voice: keep it private.")
+
+
+def import_garden(src: Path) -> None:
+    """--import in.zip: add the takes from an --export zip. Takes already here
+    unchanged are skipped; if the zip has a different take under a number in use
+    here, nothing is imported. Everything is checked before the first write."""
+    src = src.expanduser()
+    if not src.is_file():
+        raise TakeError(f"File not found: {src}")
+    try:
+        z = zipfile.ZipFile(src)
+    except zipfile.BadZipFile:
+        raise TakeError(f"{src} isn't a zip file.") from None
+    with z:
+        names = set(z.namelist())
+
+        def read_json(name: str):
+            if name not in names:
+                raise TakeError(f"{src.name} has no {name}, so it isn't a Voice Garden "
+                                "export (make one with --export).")
+            try:
+                return json.loads(z.read(name).decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                raise TakeError(f"{name} in {src.name} isn't valid JSON.") from None
+
+        manifest = read_json("manifest.json")
+        if not isinstance(manifest, dict) or manifest.get("format") != EXPORT_FORMAT:
+            raise TakeError(f"{src.name} isn't a Voice Garden export (make one with --export).")
+        if not isinstance(manifest.get("format_version"), int) \
+                or manifest["format_version"] > EXPORT_FORMAT_VERSION:
+            raise TakeError(f"{src.name} was written by a newer analyze.py "
+                            f"(export format {manifest.get('format_version')}); update first.")
+        incoming = read_json("recordings.json")
+        if not isinstance(incoming, list) or not all(
+                isinstance(r, dict) and isinstance(r.get("id"), int) and r["id"] >= 1
+                for r in incoming):
+            raise TakeError(f"recordings.json in {src.name} isn't a list of numbered takes.")
+        if len({r["id"] for r in incoming}) != len(incoming):
+            raise TakeError(f"recordings.json in {src.name} uses a take number twice.")
+        meta_in = read_json("recordings.meta.json") if "recordings.meta.json" in names else {}
+
+        recordings = load_recordings()
+        here = {r.get("id"): r for r in recordings}
+        clash = [r["id"] for r in incoming if r["id"] in here and here[r["id"]] != r]
+        if clash:
+            raise TakeError(
+                f"Take number(s) {', '.join(f'#{i}' for i in clash)} are already used here by "
+                f"different takes, so nothing was imported. Export this garden first if you "
+                f"want a backup, then --delete those takes, or import into a fresh checkout.")
+        new = [r for r in incoming if r["id"] not in here]
+        new_ids = {r["id"] for r in new}
+        busy = {i: files for i in sorted(new_ids) if (files := take_files(i))}
+        if busy:
+            raise TakeError("Files for take(s) the zip would add are already here: " + "; ".join(
+                f"#{i}: {', '.join(rel(p) for p in files)}" for i, files in busy.items())
+                + ". Move them away first; nothing was imported.")
+
+        writes: list[tuple[Path, str]] = []
+        # Files of takes already here are left alone quietly; `skipped` counts
+        # only what isn't a take file at all.
+        skipped = 0
+        here_ids = {r["id"] for r in incoming} - new_ids
+        for info in z.infolist():
+            if info.is_dir() or info.filename in (
+                    "manifest.json", "recordings.json", "recordings.meta.json"):
+                continue
+            folder, _, name = info.filename.partition("/")
+            ext = name.rpartition(".")[2].lower()
+            exts = IMPORT_EXTS.get(folder, set())
+            if (folder not in IMPORT_EXTS or "/" in name
+                    or (exts is not None and ext not in exts)
+                    or _id_of(name) not in new_ids):
+                skipped += _id_of(name) not in here_ids
+                continue
+            writes.append((_export_dirs()[folder] / name, info.filename))
+        missing = [r["id"] for r in new if isinstance(r.get("audio"), str) and not any(
+            arc == f"audio/{Path(r['audio']).name}" for _, arc in writes)]
+
+        # ---- write phase -----------------------------------------------------
+        for dest, arcname in writes:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            tmp = dest.with_name(f".{dest.name}.tmp")
+            tmp.write_bytes(z.read(arcname))
+            os.replace(tmp, dest)
+    if new:
+        theirs = meta_in.get("next_id") if isinstance(meta_in, dict) else None
+        reserve_id(max(max(new_ids), theirs - 1 if isinstance(theirs, int) else 0))
+        recordings.extend(new)
+        recordings.sort(key=_by_id)
+        save_recordings(recordings)
+    same = len(incoming) - len(new)
+    print(f"📥 Imported {len(new)} take(s)"
+          + (f" ({', '.join(f'#{i}' for i in sorted(new_ids))})" if new else "")
+          + f" and {len(writes)} file(s) from {src.name}"
+          + (f"; {same} take(s) were already here and left as they are" if same else "")
+          + (f"; ignored {skipped} file(s) that aren't take files" if skipped else "") + ".")
+    if missing:
+        print(f"⚠️  No audio in the zip for take(s) {', '.join(f'#{i}' for i in missing)}.")
+    old = sorted({str(r.get("analyzer_version") or "pre-2.0") for r in new} - {ANALYZER_VERSION})
+    if old:
+        print(f"🌱 Some imported takes were measured by analyzer {', '.join(old)}; this is "
+              f"{ANALYZER_VERSION}. Run --backfill to re-measure them all the same way.")
+    if any(dest.parent == ENTRIES_DIR for dest, _ in writes):
+        print("🔐 Annotation entries are code the dashboard runs: only import zips you made.")
+
+
+def backfill(register_floor: float | None = None,
+             formant_ceiling: float = FORMANT_CEILING) -> None:
+    """Recompute metrics for every existing recording from its stored audio,
+    preserving id/label/note/date. Use after adding a new metric (e.g. weight).
+
+    The register floor is re-derived under the current default (relative to each
+    take's own median) unless `register_floor` (--register-floor) forces one.
+    Entries written before floor_mode existed all carry the old fixed 130 Hz
+    default, which is exactly what this re-derives; a floor that was set
+    explicitly with --register-floor on a newer entry (floor_mode "absolute")
+    is kept.
+
+    All or nothing per take, and nothing half-written overall: every take is
+    measured first, its detail written under a temp name (.<id>.json.backfill);
+    only then is recordings.json saved and the details renamed into place. An
+    interruption before that point leaves the old files exactly as they were.
+    A take that fails (missing audio, unreadable, too short) is reported and
+    keeps its old numbers; the run carries on and exits non-zero at the end.
+    """
+    recordings = load_recordings()
+    if not recordings:
+        raise TakeError("No recordings to backfill.")
+    ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
+    staged: list[tuple[Path, Path]] = []  # (temp detail, final detail)
+    updated: dict[int, dict] = {}  # index in recordings -> re-measured entry
+    failed: list[str] = []
+    try:
+        for i, entry in enumerate(recordings):
+            rec_id = entry.get("id")
+            try:
+                src = measured_file(entry)
+                if not isinstance(rec_id, int) or src is None:
+                    raise TakeError("the entry has no take number or no audio path")
+                if not src.is_file():
+                    raise TakeError(f"its audio is missing ({rel(src)})")
+                old = entry.get("register") or {}
+                floor = register_floor
+                if floor is None and old.get("floor_mode") == "absolute":
+                    floor = old.get("floor_hz")
+                metrics, detail, register = measure_file(src, floor, formant_ceiling)
+                final = ANALYSIS_DIR / f"{rec_id}.json"
+                tmp = final.with_name(f".{final.name}.backfill")
+                tmp.write_text(json.dumps(detail), encoding="utf-8")
+                staged.append((tmp, final))
+            except Exception as e:  # noqa: BLE001 — one bad take mustn't stop the rest
+                failed.append(f"#{rec_id}: {e}")
+                print(f"⚠️  #{rec_id} not re-measured: {e}")
+                continue
+            updated[i] = {**entry, **metrics, "register": register,
+                          "detail": f"analysis/{rec_id}.json",
+                          "analyzer_version": ANALYZER_VERSION, "analyzed_at": now_iso()}
+            print(f"✅ #{rec_id} re-measured — pitch ~{metrics['pitch']['mean_hz']} Hz, "
+                  f"in-register {register['in_register_pct']}%")
+        # ---- commit: recordings.json, then the details ------------------------
+        for i, entry in updated.items():
+            recordings[i] = entry
+        if updated:
+            recordings.sort(key=_by_id)
+            save_recordings(recordings)
+            for tmp, final in staged:
+                os.replace(tmp, final)
+            staged.clear()
+    finally:
+        for tmp, _ in staged:  # interrupted or failed before the commit
+            tmp.unlink(missing_ok=True)
+    print(f"🌸 Backfill: {len(updated)} of {len(recordings)} take(s) re-measured with analyzer "
+          f"{ANALYZER_VERSION}.")
+    if failed:
+        raise TakeError(f"{len(failed)} take(s) couldn't be re-measured and kept their old "
+                        "numbers:\n   " + "\n   ".join(failed))
+
+
+# Which options each command reads; anything else given alongside it is an error
+# rather than silently ignored ("--delete 3 --label x" deletes nothing by label).
+_OPTIONS_FOR = {
+    "add": {"audio", "label", "note", "date", "register_floor", "formant_ceiling", "id",
+            "allow_duplicate"},
+    "replace": {"audio", "label", "note", "date", "register_floor", "formant_ceiling",
+                "allow_duplicate"},
+    "relabel": {"label", "note", "date"},
+    "backfill": {"register_floor", "formant_ceiling"},
+    "delete": set(),
+    "export": set(),
+    "import_zip": set(),
+}
+_COMMANDS = ("backfill", "delete", "relabel", "replace", "export", "import_zip")
+
+
+def _date_arg(text: str) -> str:
+    """--date: a real calendar date written YYYY-MM-DD (what the trend charts sort by)."""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", text, re.ASCII):
+        raise argparse.ArgumentTypeError(
+            f"write the date as YYYY-MM-DD, e.g. {datetime.now():%Y-%m-%d} (got {text!r})")
+    try:
+        datetime.strptime(text, "%Y-%m-%d")
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text} isn't a real date") from None
+    return text
+
+
+def _floor_arg(text: str) -> float:
+    """--register-floor: Hz, within REGISTER_FLOOR_RANGE."""
+    lo, hi = REGISTER_FLOOR_RANGE
+    try:
+        hz = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"give the floor in Hz, e.g. 140 (got {text!r})") from None
+    if not lo <= hz <= hi:  # also rejects nan
+        raise argparse.ArgumentTypeError(
+            f"{text} Hz isn't a speaking pitch; use {lo:g}-{hi:g} Hz, or leave it out for the "
+            f"take-relative floor ({REGISTER_FLOOR_ST:g} semitones under the take's median)")
+    return hz
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Analyze a voice training recording 🌸",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""examples:
+  analyze.py take.m4a --label "bright resonance"         add a new take
+  analyze.py better.m4a --replace 3                      re-analyse take #3 from new audio
+  analyze.py --relabel 3 --label "forward focus" --date 2026-10-01
+  analyze.py --delete 3                                  move take #3 to trash/
+  analyze.py --backfill                                  re-measure every take
+  analyze.py --export backup.zip / --import backup.zip   back up / restore""",
+    )
+    parser.add_argument("audio", nargs="?", help="Path to the audio file (mp3/m4a/wav/...)")
+    parser.add_argument("--label", help="What you were trying this take")
+    parser.add_argument("--note", default=None, help="Optional extra note")
+    parser.add_argument("--date", type=_date_arg, default=None,
+                        help="The take's date (YYYY-MM-DD); defaults to today")
+    parser.add_argument(
+        "--register-floor", type=_floor_arg, default=None,
+        help="Absolute register floor in Hz. Default: relative to the take — "
+             f"{REGISTER_FLOOR_ST:g} semitones below its own median pitch. "
+             "With --backfill, applies to every recording.",
+    )
+    parser.add_argument(
+        "--formant-ceiling", type=float, default=FORMANT_CEILING,
+        help=f"Maximum-formant ceiling in Hz (default {FORMANT_CEILING:g}). Keep it the "
+             "same across takes so they stay comparable; --backfill uses it for all.",
+    )
+    parser.add_argument(
+        "--id", type=int, default=None,
+        help="Give a new take this number (e.g. add an older take as #1). Default: the next "
+             "number never used before.",
+    )
+    parser.add_argument(
+        "--allow-duplicate", action="store_true",
+        help="Add (or --replace with) a file that is already a take.",
+    )
+    cmd = parser.add_mutually_exclusive_group()
+    cmd.add_argument(
+        "--backfill", action="store_true",
+        help="Recompute metrics for ALL existing recordings from their stored audio "
+             "(preserves id/label/note/date). Use after the analyzer changes.",
+    )
+    cmd.add_argument("--replace", type=int, metavar="ID",
+                     help="Re-analyse take ID from the given audio, keeping its number, "
+                          "label, note, date and annotation entry (old files go to trash/).")
+    cmd.add_argument("--relabel", type=int, metavar="ID",
+                     help="Change take ID's --label, --note and/or --date.")
+    cmd.add_argument("--delete", type=int, metavar="ID",
+                     help="Move take ID (entry, audio, analysis, annotation entry) to trash/.")
+    cmd.add_argument("--export", type=Path, metavar="OUT.zip",
+                     help="Back up every take, its audio, analysis and annotation entry.")
+    cmd.add_argument("--import", dest="import_zip", type=Path, metavar="IN.zip",
+                     help="Add the takes from an --export zip.")
+    return parser
+
+
+def run(args: argparse.Namespace) -> None:
+    if args.backfill:
+        backfill(args.register_floor, args.formant_ceiling)
+    elif args.replace is not None:
+        replace_take(args.replace, args)
+    elif args.relabel is not None:
+        relabel_take(args.relabel, args.label, args.note, args.date)
+    elif args.delete is not None:
+        delete_take(args.delete)
+    elif args.export is not None:
+        export_garden(args.export)
+    elif args.import_zip is not None:
+        import_garden(args.import_zip)
+    else:
+        add_take(args)
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    command = next((c for c in _COMMANDS if getattr(args, c) not in (None, False)), "add")
+    flag = {"import_zip": "--import", "add": "a new take"}.get(command, f"--{command}")
+    for name in vars(args).keys() - _OPTIONS_FOR[command] - set(_COMMANDS):
+        if getattr(args, name) != parser.get_default(name):
+            shown = name if name == "audio" else "--" + name.replace("_", "-")
+            parser.error(f"{shown} doesn't go with {flag}")
+    for name in ("id", "replace", "relabel", "delete"):
+        if (v := getattr(args, name)) is not None and v < 1:
+            parser.error(f"--{name} takes a take number (1 or more), not {v}")
+    try:
+        run(args)
+    except TakeError as e:
+        raise SystemExit(f"❌ {e}") from None
 
 
 if __name__ == "__main__":
