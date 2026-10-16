@@ -1,6 +1,6 @@
 # Voice Garden
 
-![HLdkXJnXwAAVpuS.jpg](HLdkXJnXwAAVpuS.jpg)
+![The Voice Garden dashboard: the tulip header, the Record a take panel, and the latest take's pitch, loudness, clarity, steadiness and weight cards, each with a pastel zone bar. The take shown is a demo made from a VCTK reference voice.](docs/dashboard.jpg)
 
 This is the only part of this repo that is primarily written by a human!! I am warning you this because I think AI disclosure is important.
 
@@ -14,7 +14,33 @@ For best results, I recommend that you read the same passage with a similar micr
 
 Open your coding agent of choice and ask it to read CLAUDE.md. It will give you a summary of how to use this application and work with you to analyze your voice.
 
-If you don't know what a coding agent is or how to do this, DM me. I will see about packaging it for you in an easier format, but it will be less useful as I will have to remove the AI features.
+If you don't know what a coding agent is or how to do this, [open an issue](https://github.com/spencerduncan/voice-training-ui/issues). I will see about packaging it for you in an easier format, but it will be less useful as I will have to remove the AI features.
+
+## Setup
+
+You'll need [uv](https://docs.astral.sh/uv) (Python), [Node.js](https://nodejs.org) 20 or newer, and ffmpeg:
+
+- macOS: `brew install ffmpeg`
+- Debian/Ubuntu: `sudo apt-get install ffmpeg`
+- Windows: `winget install --id Gyan.FFmpeg` (then open a new terminal so it's on your PATH)
+
+Then, from the project folder, run these one at a time (this works the same in bash, zsh, fish and Windows PowerShell):
+
+```sh
+uv sync
+cd dashboard-react
+npm ci
+npm run dev
+```
+
+and open <http://localhost:5173>.
+
+- **Never start the dashboard with `--host`** while you have takes recorded — that serves your recordings to everyone on your network. The default only listens on your own machine.
+- `npm audit` may list advisories in dev-only tools (Vite, esbuild and the like). Those are about the local dev server and build tooling, not your recordings, which are plain files on your disk that nothing uploads. **Don't run `npm audit fix --force`** — it jumps to major versions this dashboard isn't built for.
+
+### Recording a take
+
+With the dashboard running (`npm run dev`), the **Record a take** panel at the top records from your microphone, lets you listen back, and — once you say what you were going for — runs the analyzer for you; the take shows up on the dashboard straight away. The audio goes only to the dev server on your own machine. Your browser's echo cancellation, noise suppression and auto-gain are switched off so they don't reshape what's being measured. You can also save the file and run `uv run analyze.py` on it yourself; the panel shows the exact command.
 
 ## Your recordings stay on your machine 🌷
 
@@ -24,7 +50,7 @@ If you don't know what a coding agent is or how to do this, DM me. I will see ab
 
 One caveat if you cloned rather than downloaded: `recordings.json` and its `dashboard-react/public/` mirror are tracked as empty `[]` starters, and git keeps following a file once it's tracked — gitignore only applies to files git isn't already watching. So the log of your takes (labels, notes, numbers — not the audio) can still land in a commit. If you'd rather git forgot those two files entirely, run this once:
 
-```
+```sh
 git rm --cached recordings.json dashboard-react/public/recordings.json
 ```
 

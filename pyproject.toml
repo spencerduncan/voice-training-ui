@@ -1,9 +1,30 @@
 [project]
-name = "voice-training"
+name = "voice-garden"
 version = "0.1.0"
 description = "Voice Garden — acoustic analysis behind a cozy voice-feminization training tracker (pitch, resonance, weight, register & phrasing)"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.13"
 dependencies = [
     "numpy>=2.5.0",
     "praat-parselmouth>=0.4.7",
 ]
+
+[dependency-groups]
+dev = ["ruff==0.17.1"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "RUF", "BLE"]
+# The prose uses typographic en dashes for ranges and formulas (F1–F3, H1*–A3*).
+allowed-confusables = ["–"]
+
+[tool.ruff.lint.per-file-ignores]
+# Scripts put the repo root on sys.path before importing analyze.
+"scripts/*.py" = ["E402"]
+# TODO(analyzer): pick strict=True/False at each zip() call, then drop these two.
+"analyze.py" = ["B905"]
+"scripts/build_reference_set.py" = ["B905"]

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { FiMaximize2 } from "react-icons/fi";
+import { ExpandIcon } from "./icons";
 import { type Zone, zoneOf, fmt } from "../zones";
 import { ZoneBar } from "./ZoneBar";
 import type { MetricKey } from "../metrics";
@@ -61,7 +61,7 @@ export function StatCard({
     >
       {clickable && (
         <span className="stat-expand" aria-hidden="true">
-          <FiMaximize2 />
+          <ExpandIcon />
         </span>
       )}
       <div className="label">
