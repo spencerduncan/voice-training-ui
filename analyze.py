@@ -80,8 +80,15 @@ ANALYSIS_DIR = APP_PUBLIC / "analysis"
 # Pitch search range (Hz). Wide enough for a feminizing voice without octave errors.
 PITCH_FLOOR = 75.0
 PITCH_CEILING = 500.0
-# Formant ceiling: 5500 Hz is the standard reference for a feminine vocal tract.
+# Formant ceiling: one fixed maximum-formant ceiling for every take, 5500 Hz
+# (Praat's standard for an adult female / shorter vocal tract). Override with
+# --formant-ceiling; the value used is stored as formants.formant_ceiling_hz.
 FORMANT_CEILING = 5500.0
+# Vowel-nucleus gate for formants (see vowel_nuclei()).
+VOWEL_LOUD_DB = 10.0  # within this of the phrase's 95th-percentile intensity
+VOWEL_F1_RANGE = (250.0, 1000.0)
+VOWEL_F2_STEP_HZ = 150.0  # max |F2 change| vs the previous 10 ms frame
+MIN_VOWEL_FRAMES = 20  # fewer survivors -> formants reported as null
 # Semitone reference (Hz). Only matters for absolute st values; variation (SD)
 # is reference-independent. 100 Hz matches Praat's "semitones re 100 Hz".
 SEMITONE_REF = 100.0
@@ -373,132 +380,102 @@ def spectral_weight(sound: parselmouth.Sound,
     }
 
 
+def vowel_nuclei(sound: parselmouth.Sound, pitch: parselmouth.Pitch,
+                 intensity: parselmouth.Intensity,
+                 formant: parselmouth.Formant) -> dict[str, np.ndarray]:
+    """The vowel-nucleus frames of a take: the frames formants (and the vocal-
+    weight measure) are read from. Returns parallel arrays t / f0 / f1 / f2 / f3.
+
+    Every frame of the pitch track's 10 ms grid is tested — no subsampling, so
+    the result can't depend on how long the take is. A frame is kept when it is:
+      1. **Voiced** — F0 present.
+      2. **Loud for its phrase** — within VOWEL_LOUD_DB of the 95th-percentile
+         intensity of the voiced frames in the same phrase (segment_phrases()).
+         Vowel nuclei are the loud cores of syllables. Judging each phrase
+         against its own level (not one take-wide peak) keeps a quieter last
+         sentence in play, and means one transient can't empty the take — the
+         same footing as the reference voices, which are measured clip by clip.
+      3. **Plausible vowel F1** — VOWEL_F1_RANGE; rejects nasals/approximants
+         and obvious mistracks.
+      4. **Stable** — |F2 - F2 of the previous 10 ms frame| <= VOWEL_F2_STEP_HZ,
+         dropping transitions/glides where the tracker is sliding. The
+         reference is always the immediately preceding frame, whether or not
+         that frame was itself kept, so one wild excursion can't cascade.
+    """
+    f0 = pitch.selected_array["frequency"]
+    ts = np.asarray(pitch.xs())
+    voiced = f0 > 0
+    fmt = np.array([[formant.get_value_at_time(n, t) for t in ts] for n in (1, 2, 3)])
+    with np.errstate(invalid="ignore"):
+        plausible = (np.isfinite(fmt).all(axis=0) & (fmt > 0).all(axis=0)
+                     & (fmt[0] >= VOWEL_F1_RANGE[0]) & (fmt[0] <= VOWEL_F1_RANGE[1]))
+        stable = np.abs(np.diff(fmt[1], prepend=np.nan)) <= VOWEL_F2_STEP_HZ
+    level = np.interp(ts, intensity.xs(), intensity.values[0])
+    spans = segment_phrases(sound, intensity, ts[voiced]) or [(0.0, sound.xmax)]
+    loud = np.zeros_like(voiced)
+    for t0, t1 in spans:
+        inside = voiced & (ts >= t0) & (ts <= t1)
+        if inside.any():
+            ref = float(np.percentile(level[inside], 95))
+            loud |= inside & (level >= ref - VOWEL_LOUD_DB)
+    keep = voiced & loud & plausible & stable
+    return {"t": ts[keep], "f0": f0[keep],
+            "f1": fmt[0][keep], "f2": fmt[1][keep], "f3": fmt[2][keep]}
+
+
 def vowel_formants(sound: parselmouth.Sound, pitch: parselmouth.Pitch,
                    intensity: parselmouth.Intensity | None = None,
-                   formant: parselmouth.Formant | None = None) -> dict:
+                   formant: parselmouth.Formant | None = None,
+                   ceiling: float = FORMANT_CEILING,
+                   nuclei: dict[str, np.ndarray] | None = None) -> dict:
     """Vowel-nucleus-targeted F1/F2/F3 (median over vowel cores), in Hz.
 
     The old method averaged each formant over EVERY voiced frame, which folds in
     consonant transitions, glides, schwas and tracker mistracks — that compresses
     the signal so it barely separates the sexes (on VCTK: women's F2 mean 1639 vs
-    men's 1566, only ~73 Hz apart). Resonance should separate them much better.
+    men's 1566, only ~73 Hz apart). Instead we take the MEDIAN over the frames
+    vowel_nuclei() keeps, and report null rather than a number when fewer than
+    MIN_VOWEL_FRAMES survive. `n_vowel_frames` says how many it was.
 
-    Instead we gate to frames that are voiced AND vowel-like, then take the
-    MEDIAN (robust to the outliers a mean drags in):
-      1. **Voiced** — F0 present at the frame (pulled from the pitch track in one
-         numpy shot, then subsampled to <=300 frames so cost is bounded on long
-         clips; no per-bin Praat round-trips).
-      2. **Loud** — within 10 dB of the clip's peak intensity. Vowel nuclei are
-         the loud cores of syllables; consonants and glides are quieter.
-      3. **Plausible vowel F1** — F1 in ~250–1000 Hz (real vowel-space range);
-         rejects nasals/approximants and obvious mistracks.
-      4. **Stable** — small frame-to-frame change in F2 (<= ~150 Hz vs its
-         neighbour), so we keep the steady vowel core and drop transitions/glides
-         where the tracker is sliding.
+    Ceiling: one fixed maximum-formant ceiling for every take (`ceiling`,
+    default FORMANT_CEILING = 5500 Hz, --formant-ceiling), stored as
+    `formant_ceiling_hz`. This replaces a two-ceiling (5500/5000) "tighter F2
+    spread wins" selector: a lower ceiling mechanically compresses the F2
+    estimates, so their spread shrinks with them and 5000 won structurally
+    (19 of 21 reference voices), and which ceiling won could flip F2 by
+    ~230 Hz on identical audio. A fixed ceiling makes every take measured the
+    same way, which is what a trend needs.
 
-    From the surviving vowel frames we take the median F1, F2, F3. F1 uses the
-    same gated set for consistency; F2/F3 are the focus (the real brightness cue).
-
-    Ceiling note: `To Formant (burg)` uses a single max-formant ceiling
-    (FORMANT_CEILING = 5500 Hz), tuned for a feminine/shorter vocal tract. On the
-    reference MEN this can mistrack (their formants are lower; a 5500 ceiling can
-    pack an extra spurious formant in). We measure twice — once at 5500 and once
-    at a lower 5000 ceiling typical for longer (masculine) tracts — and pick the
-    ceiling whose vowel-gated frames give the **tighter** (lower-spread) F2
-    distribution, i.e. the cleaner track. This is applied uniformly to takes AND
-    refs, so M/F stay comparable; it costs one extra Formant pass (the 5500 one
-    is shared with analyze()/spectral_weight()) and no per-bin loops, so runtime
-    stays bounded.
-
-    `intensity` and `formant` (the 5500 Hz one) may be handed in by a caller that
-    already built them with the same parameters — analyze() does, so a full run
-    builds each object once instead of once per metric.
+    `intensity` and `formant` may be handed in by a caller that already built
+    them (analyze() does); `formant` must have been built at `ceiling`.
+    `nuclei` likewise, if the caller already ran vowel_nuclei().
     """
-    f0s = pitch.selected_array["frequency"]
-    ts = pitch.xs()
-    voiced_idx = [i for i, f in enumerate(f0s) if f > 0]
-    if not voiced_idx:
-        return {1: None, 2: None, 3: None}
-
-    # Loud gate: intensity track in one shot; threshold = peak - 10 dB.
-    if intensity is None:
-        intensity = _intensity(sound)
-    int_vals = intensity.values[0]
-    int_ts = intensity.xs()
-    int_max = float(np.nanmax(int_vals))
-    loud_floor = int_max - 10.0
-
-    def int_at(t: float) -> float:
-        j = int(np.searchsorted(int_ts, t))
-        j = min(max(j, 0), len(int_vals) - 1)
-        return float(int_vals[j])
-
-    # Candidate vowel-core times: voiced + loud. Subsample to bound cost.
-    cand_ts = [float(ts[i]) for i in voiced_idx if int_at(float(ts[i])) >= loud_floor]
-    max_frames = 300
-    if len(cand_ts) > max_frames:
-        step = len(cand_ts) / max_frames
-        cand_ts = [cand_ts[int(k * step)] for k in range(max_frames)]
-
-    def measure(ceiling: float,
-                prebuilt: parselmouth.Formant | None = None) -> dict[int, list[float]]:
-        fmt = prebuilt if prebuilt is not None else call(
-            sound, "To Formant (burg)", 0.0, 5, ceiling, 0.025, 50)
-        rows: list[tuple[float, float, float, float]] = []  # (t, f1, f2, f3)
-        for t in cand_ts:
-            vals = []
-            ok = True
-            for n in (1, 2, 3):
-                v = fmt.get_value_at_time(n, t)
-                if math.isnan(v) or v <= 0:
-                    ok = False
-                    break
-                vals.append(v)
-            if not ok:
-                continue
-            f1, f2, f3 = vals
-            if not (250.0 <= f1 <= 1000.0):  # plausible vowel F1
-                continue
-            rows.append((t, f1, f2, f3))
-        # Stability gate: drop frames where F2 jumps vs the previous kept frame
-        # (transitions/glides). Keep the steady vowel cores.
-        out: dict[int, list[float]] = {1: [], 2: [], 3: []}
-        prev_f2 = None
-        for _t, f1, f2, f3 in rows:
-            if prev_f2 is not None and abs(f2 - prev_f2) > 150.0:
-                prev_f2 = f2
-                continue
-            out[1].append(f1)
-            out[2].append(f2)
-            out[3].append(f3)
-            prev_f2 = f2
-        return out
-
-    # Measure at both ceilings; pick the one with the tighter F2 spread (cleaner
-    # track), as long as it yields enough vowel frames.
-    best = None
-    best_spread = float("inf")
-    for ceiling in (FORMANT_CEILING, 5000.0):
-        fv = measure(ceiling, formant if ceiling == FORMANT_CEILING else None)
-        if len(fv[2]) < 5:
-            continue
-        spread = statistics.pstdev(fv[2])
-        if spread < best_spread:
-            best_spread = spread
-            best = fv
-    if best is None:
-        best = measure(FORMANT_CEILING, formant)
-
-    return {n: (statistics.median(best[n]) if best[n] else None) for n in (1, 2, 3)}
+    if nuclei is None:
+        if intensity is None:
+            intensity = _intensity(sound)
+        if formant is None:
+            formant = call(sound, "To Formant (burg)", 0.0, 5, ceiling, 0.025, 50)
+        nuclei = vowel_nuclei(sound, pitch, intensity, formant)
+    n = len(nuclei["t"])
+    ok = n >= MIN_VOWEL_FRAMES
+    return {
+        "f1_hz": clean(float(np.median(nuclei["f1"]))) if ok else None,
+        "f2_hz": clean(float(np.median(nuclei["f2"]))) if ok else None,
+        "f3_hz": clean(float(np.median(nuclei["f3"]))) if ok else None,
+        "formant_ceiling_hz": ceiling,
+        "n_vowel_frames": n,
+    }
 
 
 def analyze(sound: parselmouth.Sound,
-            intensity: parselmouth.Intensity | None = None) -> dict:
+            intensity: parselmouth.Intensity | None = None,
+            formant_ceiling: float = FORMANT_CEILING) -> dict:
     """Standard summary metrics for the permanent dashboard cards.
 
     `intensity` may be supplied by a caller that also runs analyze_register()
     on the same Sound (main() and backfill() do), so the two analyses share one
-    Intensity object; otherwise it's built here.
+    Intensity object; otherwise it's built here. `formant_ceiling` is the one
+    maximum-formant ceiling (Hz) used for formants and vocal weight.
     """
     duration = sound.get_total_duration()
 
@@ -507,7 +484,7 @@ def analyze(sound: parselmouth.Sound,
     # used to each construct their own with exactly these parameters. Same
     # commands, same arguments, same values — just a third of the work.
     pitch = call(sound, "To Pitch", 0.0, PITCH_FLOOR, PITCH_CEILING)
-    formant = call(sound, "To Formant (burg)", 0.0, 5, FORMANT_CEILING, 0.025, 50)
+    formant = call(sound, "To Formant (burg)", 0.0, 5, formant_ceiling, 0.025, 50)
     if intensity is None:
         intensity = _intensity(sound)
 
@@ -519,7 +496,7 @@ def analyze(sound: parselmouth.Sound,
     median_f0 = call(pitch, "Get quantile", 0, 0, 0.5, "Hertz")
 
     # ---- Formants (resonance): vowel-nucleus-targeted median (F2/F3 focus) -
-    mean_formant = vowel_formants(sound, pitch, intensity, formant)
+    formants = vowel_formants(sound, pitch, intensity, formant, formant_ceiling)
 
     # ---- Voice quality: HNR, jitter, shimmer -----------------------------
     harmonicity = call(sound, "To Harmonicity (cc)", 0.01, PITCH_FLOOR, 0.1, 1.0)
@@ -546,11 +523,7 @@ def analyze(sound: parselmouth.Sound,
             "range_hz": clean(max_f0 - min_f0) if not (math.isnan(min_f0) or math.isnan(max_f0)) else None,
             "sd_hz": clean(sd_f0),
         },
-        "formants": {
-            "f1_hz": clean(mean_formant[1]),
-            "f2_hz": clean(mean_formant[2]),
-            "f3_hz": clean(mean_formant[3]),
-        },
+        "formants": formants,
         "voice_quality": {
             "hnr_db": clean(hnr),
             "jitter_pct": clean(jitter * 100 if not math.isnan(jitter) else None),
@@ -842,7 +815,8 @@ def save_recordings(recordings: list[dict]) -> None:
     PUBLIC_RECORDINGS_JSON.write_text(payload)
 
 
-def backfill(register_floor: float | None = None) -> None:
+def backfill(register_floor: float | None = None,
+             formant_ceiling: float = FORMANT_CEILING) -> None:
     """Recompute metrics for every existing recording from its stored audio,
     preserving id/label/note/date. Use after adding a new metric (e.g. weight).
 
@@ -869,7 +843,7 @@ def backfill(register_floor: float | None = None) -> None:
         if floor is None and old.get("floor_mode") == "absolute":
             floor = old.get("floor_hz")
         intensity = _intensity(sound)  # shared by both analyses below
-        entry.update(analyze(sound, intensity))
+        entry.update(analyze(sound, intensity, formant_ceiling))
         detail, register = analyze_register(sound, floor, intensity)
         entry["register"] = register
         (ANALYSIS_DIR / f"{entry['id']}.json").write_text(json.dumps(detail))
@@ -892,6 +866,11 @@ def main() -> None:
              "With --backfill, applies to every recording.",
     )
     parser.add_argument(
+        "--formant-ceiling", type=float, default=FORMANT_CEILING,
+        help=f"Maximum-formant ceiling in Hz (default {FORMANT_CEILING:g}). Keep it the "
+             "same across takes so they stay comparable; --backfill uses it for all.",
+    )
+    parser.add_argument(
         "--id", type=int, default=None,
         help="Force this recording id (e.g. insert an older take as #1). Default: next available.",
     )
@@ -903,7 +882,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.backfill:
-        backfill(args.register_floor)
+        backfill(args.register_floor, args.formant_ceiling)
         return
 
     if not args.audio:
@@ -930,7 +909,7 @@ def main() -> None:
     print(f"🎧 Analyzing entry #{rec_id}: {src.name} ...")
     sound = parselmouth.Sound(str(wav_path))
     intensity = _intensity(sound)  # shared by both analyses below
-    metrics = analyze(sound, intensity)
+    metrics = analyze(sound, intensity, args.formant_ceiling)
     detail, register = analyze_register(sound, args.register_floor, intensity)
 
     playback_name = f"{rec_id:03d}{src.suffix.lower()}"
