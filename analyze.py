@@ -16,8 +16,18 @@ Usage:
     uv run analyze.py "clip.wav" --label "pitch + bright resonance" --note "felt strained"
     uv run analyze.py "clip.wav" --label "..." --register-floor 130   # absolute floor
 
+Take lifecycle (see --help):
+    uv run analyze.py better.m4a --replace 3      # re-analyse take #3 from new audio
+    uv run analyze.py --relabel 3 --label "..." --note "..." --date 2026-10-01
+    uv run analyze.py --delete 3                  # entry + files -> trash/<timestamp>/
+    uv run analyze.py --backfill                  # re-measure every take (after an update)
+    uv run analyze.py --export backup.zip         # / --import backup.zip
+
 recordings.json (repo root) is the source of truth. The React app in
-dashboard-react/ reads everything from its public/ dir at runtime.
+dashboard-react/ reads everything from its public/ dir at runtime. Each take
+also keeps its source file, unchanged, in originals/ (what --backfill
+re-measures); public/audio/ gets a small mono mp3 for playback. Take numbers
+are never reused (recordings.meta.json remembers the next one).
 """
 
 from __future__ import annotations

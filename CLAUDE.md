@@ -371,7 +371,10 @@ cues, not gender cues — still read them as *her own trend*, not pass/fail.
 analyze.py  ──(uv run)──►  recordings.json (root, source of truth)
    │                       dashboard-react/public/recordings.json   (mirror)
    │                       dashboard-react/public/analysis/<id>.json (heavy detail)
-   │                       dashboard-react/public/audio/<id>.<ext>   (playback)
+   │                       dashboard-react/public/audio/<NNN>.mp3    (playback, mono 96k)
+   │                       originals/<NNN>.<ext>     (source file, unchanged; not served)
+   │                       recordings.meta.json      (next_id: numbers are never reused)
+   │                       trash/<timestamp>-…/      (what --delete / --replace moved out)
    ▼
 dashboard-react/  (Vite + React + TS)  ── fetches public/* at runtime ──► browser
    ▲
@@ -387,6 +390,45 @@ scripts/build_reference_set.py ──(uv run + ffmpeg)──►    public/refere
    important, *clockable* thing to work on, and author a custom **annotation** for that
    take (custom viz + explanation + drills). This is the "🔍 Insights for this take"
    section and any personalized woven notes.
+
+### Take lifecycle (`analyze.py` commands)
+A take is its entry in `recordings.json` plus up to four files sharing its number:
+`public/audio/<NNN>.mp3`, `public/analysis/<id>.json`, `originals/<NNN>.<ext>` and
+`src/annotations/entries/<NNN>.tsx`. The analyzer manages all of them together:
+
+| command | what it does |
+|---|---|
+| `analyze.py <audio> --label "…" [--note …] [--date YYYY-MM-DD]` | add a new take with the next never-used number |
+| `analyze.py <audio> --replace N` | re-analyse take N from new (or the same) audio in place: keeps number, label, note, date and annotation entry; old audio/analysis/original go to `trash/` |
+| `analyze.py --relabel N --label/--note/--date …` | change those fields only; nothing re-measured |
+| `analyze.py --delete N` | entry + its files → `trash/<timestamp>-deleted-takeNNN/`; the number is retired |
+| `analyze.py --backfill` | re-measure every take from its original with the current analyzer |
+| `analyze.py --export out.zip` / `--import in.zip` | back up / restore everything personal |
+
+- **Numbers are never reused.** A new take gets one past the highest number found in
+  `recordings.json`, the audio/analysis/originals/entries folders, `trash/` and `next_id` in
+  `recordings.meta.json` (a sidecar; `recordings.json` stays a plain list for the dashboard).
+  Entries are matched to takes by number alone, so a reused number would hand a deleted
+  take's insight to a new take. `--id N` picks a number explicitly; it refuses a number in
+  use, or one whose leftover files would be inherited.
+- **Duplicates are refused.** Each take stores `source_sha256`; adding a file that's already
+  a take names that take and suggests `--replace N` (or `--allow-duplicate`).
+- **Nothing half-done.** Audio is analysed and checked before any write: a take shorter than
+  1 s, or with under 0.5 s of voicing (`MIN_TAKE_S`, `MIN_VOICED_FRAMES`), is refused and no
+  file is touched; so is an ffmpeg failure (with ffmpeg's own last lines, or install hints
+  when it's missing). `--date` must be a real `YYYY-MM-DD`, `--register-floor` 50–400 Hz.
+  JSON is written via temp file + rename. `--backfill` stages every detail file, then saves
+  `recordings.json`, then renames the details in; a take that fails keeps its old numbers and
+  the run exits non-zero.
+- **Provenance.** Every take (and its `analysis/<id>.json`) carries `analyzer_version` (semver;
+  `ANALYZER_VERSION` in `analyze.py`, 2.0.0 = the Oct 2026 pipeline) and `analyzed_at`; `date`
+  stays the take's own day. A take without `analyzer_version` predates it. After an analyzer
+  update, `--backfill` brings every take to the same version — then re-read the annotation
+  entries, whose prose was written against the old numbers.
+- `trash/`, `originals/` and `recordings.meta.json` are gitignored like the rest of the takes.
+  Nothing empties `trash/`; that's left to the user. `--import` only accepts zips made by
+  `--export` (entries are code the dashboard runs), skips takes already present unchanged and
+  refuses if a number here holds a different take.
 
 ### The annotation slot system (how per-recording content persists, DRY)
 The page layout lives **once**. Personalization happens through named slots woven through
@@ -453,8 +495,11 @@ the same one the slots and the contour use), so a crash shows a gentle card, nev
 
 ## File map
 
-- `analyze.py` — the analyzer (parselmouth). Standard metrics + register/phrasing detail.
-- `recordings.json` — source of truth.
+- `analyze.py` — the analyzer (parselmouth). Standard metrics + register/phrasing detail,
+  and the take lifecycle commands (see "Take lifecycle" above).
+- `recordings.json` — source of truth. `recordings.meta.json` — its sidecar (`next_id`).
+- `originals/` — each take's source file, unchanged (what `--backfill` re-measures).
+  `trash/` — what `--delete`/`--replace` moved out. Both gitignored, like the takes.
 - `dashboard-react/`
   - `public/` — served data: `recordings.json`, `analysis/<id>.json`, `audio/`; **plus
     `reference.json` + `reference-audio/*.mp3`** (the comparison-modal corpus); plus the
@@ -474,6 +519,9 @@ the same one the slots and the contour use), so a crash shows a gentle card, nev
     (reusable), `entries/` (per-recording, authored by you).
 - `scripts/build_reference_set.py` — the reference-set generator (see "Reference voices"
   above). Its downloaded VCTK clips are cached in `.refcache/`, which is gitignored.
+- `scripts/validate_analyzer.py` — runs `analyze.py` over every reference preview (plus tiled,
+  PSOLA-crash and transient variants); `--out` saves the numbers, `--compare` diffs every
+  field against a saved run, `--analyzer` validates another copy (e.g. `git show main:analyze.py`).
 - `.claude/skills/analyze-voice/` — the workflow skill.
 
 ---
@@ -495,8 +543,16 @@ the same one the slots and the contour use), so a crash shows a gentle card, nev
   JSX runtime (`tsconfig` `jsx: react-jsx`) and `vite/client` types, so components
   correctly don't import React. **Trust `npm run build`, not inline diagnostics.** The
   IDE's TS server often lags behind file moves; a restart clears it.
-- **Data flow:** `analyze.py` writes everything additively and idempotently per id. The
-  React app never imports data statically — it fetches at runtime. Don't hardcode data.
+- **Data flow:** a plain `analyze.py` run only ever *adds* a take, under a new number; it
+  never overwrites one. Re-measuring is explicit: `--replace N <audio>` for one take (old
+  files to `trash/`), `--backfill` for all of them from `originals/` (exactly reproducible:
+  same analyzer + same original = same numbers). The React app never imports data
+  statically — it fetches at runtime. Don't hardcode data.
+- **Changing the analyzer:** bump `ANALYZER_VERSION` (MAJOR if a stored number changes
+  meaning, MINOR for new fields, PATCH otherwise), then check it with
+  `uv run scripts/validate_analyzer.py --out before.json --analyzer <copy of the old analyze.py>`
+  followed by `--out after.json --compare before.json`: its field-level comparison should list
+  only the fields you meant to change.
 - **Register methodology** (in `analyze.py`; constants at the top of the file): F0 contour via
   `Sound.to_pitch`; semitones = `12*log2(hz/100)` (perceptual; SD is reference-independent).
   Octave errors (> 1.8× or < 0.55× the take median) are dropped before pitch extremes and
@@ -507,7 +563,11 @@ the same one the slots and the contour use), so a crash shows a gentle card, nev
   dips. **Phrases**: frames more than 25 dB under the take's 95th-percentile intensity are
   silence, gaps < 250 ms merge, phrases < 0.5 s or with < 20 voiced frames are dropped.
   Per-frame position is binned into phrase thirds. Pitch min/max/range are the p5/p95 of the
-  cleaned track (`p5_hz`/`p95_hz` too) — the typical span, not the extremes.
+  cleaned track (`p5_hz`/`p95_hz` too) — the typical span, not the extremes — and `sd_hz` is
+  the SD of that same cleaned track (Praat's raw SD, octave jumps included, is `sd_raw_hz`).
+  The register block also stores its own thresholds (`crash_min_s`, `crash_bridge_s`,
+  `onset_window_s`, `ending_window_s`, `floor_st_below_median`) and, when melody is null,
+  `melody_null_reason`, so the UI can quote them instead of hardcoding.
 - **`base: './'`** is set in `vite.config.ts`. Note: opening the built `dist/index.html`
   from `file://` won't work (browsers block `fetch` of the JSON) — use `npm run dev`/preview.
 - When in doubt about a metric or model, prefer the dedicated skill and verify with a build.

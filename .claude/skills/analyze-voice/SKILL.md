@@ -47,9 +47,37 @@ uv run analyze.py "<path to audio>" --label "<what she was practicing>" [--note 
   `floor_mode: "absolute"`.
 - Python is managed with **uv**, never pip. If you edit `analyze.py`, run `uvx ruff check .`
   and keep it clean.
-- Writes (additive, idempotent per id): `recordings.json` (+ mirror in
-  `dashboard-react/public/`), `public/analysis/<id>.json` (heavy detail), `public/audio/<id>`.
+- A plain run only ever **adds** a take, under a number never used before. It writes
+  `recordings.json` (+ mirror in `dashboard-react/public/`), `public/analysis/<id>.json`
+  (heavy detail), `public/audio/<NNN>.mp3` (mono playback copy) and `originals/<NNN>.<ext>`
+  (her file, unchanged).
 - Note the new **id** (printed as `entry #N`) — it's the annotation filename.
+- **If it refuses, read the message and pass it on kindly; nothing was saved:**
+  - *"already take #N"* — the same file was analysed before. If she wants that take
+    re-measured, use `--replace N` (below); add `--allow-duplicate` only if she really wants
+    a second copy.
+  - *too short / "could hardly hear a voice"* — under 1 s, or under 0.5 s of voicing. Ask
+    her to check the mic or input and record again.
+  - *ffmpeg not found / couldn't read* — install ffmpeg (the message says how) or re-export
+    the file.
+
+Other commands, when she asks (each prints what it did):
+
+```fish
+uv run analyze.py "<new audio>" --replace N     # re-analyse take N in place (a re-record, or
+                                                # her file again with --register-floor <Hz>)
+uv run analyze.py --relabel N --label "..." [--note "..."] [--date YYYY-MM-DD]
+uv run analyze.py --delete N                    # take N + its files → trash/ (recoverable)
+uv run analyze.py --backfill                    # re-measure every take after an analyzer update
+uv run analyze.py --export backup.zip           # back up; --import backup.zip to restore
+```
+
+- `--replace` keeps the number, label, note, date **and** `entries/<NNN>.tsx`; re-read that
+  entry against the new numbers and update it. `--backfill` re-measures every take from its
+  original; afterwards, re-read every entry whose numbers moved.
+- `--delete` retires the number for good, so the deleted take's entry (moved to `trash/` with
+  it) can never attach to a later take. Don't renumber or reuse numbers by hand.
+- Each take records `analyzer_version` and `analyzed_at`; `date` is the day she recorded it.
 
 ## Step 2 — Read the detailed data
 
