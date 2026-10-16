@@ -10,9 +10,10 @@
   --mint: #b8ecd8;
   --butter: #ffe9a8;
   --ink: #6b5876;
-  /* secondary text: 4.9:1 on --card, 4.5:1 on --lav-bg / --pink-bg (AA for the
-     12–13px explanatory copy that uses it). Was #9d8ba8, ~3:1. */
-  --ink-soft: #7a6889;
+  /* secondary text: 5.2:1 on --card, >=4.6:1 on --lav-bg, --pink-bg and the
+     player's hover tint (AA for the 12–13px explanatory copy that uses it).
+     Was #9d8ba8, ~3:1. */
+  --ink-soft: #756384;
   --card: #fffafd;
   --shadow: 0 8px 24px rgba(186, 142, 196, 0.18);
   --radius: 22px;

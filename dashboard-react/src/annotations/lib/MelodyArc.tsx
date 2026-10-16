@@ -120,11 +120,11 @@ export function MelodyArc({
       {/* x labels */}
       {points.map((p, i) => (
         <text key={`x${i}`} x={x(i)} y={H - 14} fontSize="11" textAnchor="middle"
-          fill={p.current ? "#c75c93" : "#7a6889"} fontWeight={p.current ? 700 : 400}>
+          fill={p.current ? "#c75c93" : "#756384"} fontWeight={p.current ? 700 : 400}>
           #{p.label}
         </text>
       ))}
-      <text x={pad.l} y={H - 2} fontSize="10" fill="#7a6889">
+      <text x={pad.l} y={H - 2} fontSize="10" fill="#756384">
         pink = in-register melody · grey dashed = all voiced time (counts the dips below the floor)
       </text>
     </svg>
