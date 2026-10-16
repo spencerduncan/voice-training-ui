@@ -52,8 +52,8 @@ uv run analyze.py "<path to audio>" --label "<what she was practicing>" [--note 
 
 Read `dashboard-react/public/analysis/<id>.json` and the new entry in `recordings.json`.
 Shapes are in `dashboard-react/src/types.ts`:
-- `Recording.register`: `in_register_pct`, `semitones_sd` (raw, inflated), `in_register_semitones_sd`
-  (honest melody), `onset_sub_pct`/`mid_sub_pct`/`offset_sub_pct`, `phrases_landed_pct`,
+- `Recording.register`: `in_register_pct`, `semitones_sd` (all voiced frames), `in_register_semitones_sd`
+  (frames above the floor only — fragile when little time was in register), `onset_sub_pct`/`mid_sub_pct`/`offset_sub_pct`, `phrases_landed_pct`,
   `n_phrases`, `floor_hz`.
 - `RecordingDetail`: `frames {t[],hz[]}` (hz null when unvoiced), `phrases[]`
   (`start/end/onset_hz/offset_hz/min_hz/started_in_register/ended_in_register/sub_register_pct`).
@@ -64,8 +64,9 @@ Shapes are in `dashboard-react/src/types.ts`:
 
 Find the **1–3 most important, most actionable** things — beat generic advice like
 "add melody." Reason like a phonetician. Check, roughly by leverage:
-- **Register & phrase boundaries.** Is "lively prosody" real, or register crashes? Compare
-  `semitones_sd` vs `in_register_semitones_sd`. Where do drops cluster (onset/mid/offset)?
+- **Register & phrase boundaries.** A big gap between `semitones_sd` and
+  `in_register_semitones_sd` mostly means time below the floor, not extra melody — say so
+  kindly rather than calling it expression. Where do drops cluster (onset/mid/offset)?
   Which phrases fell out (`ended_in_register === false`)? Trailing-off endings are very clockable.
 - **Pitch.** Mean vs the feminine threshold (~165 Hz). In-register melody flat (< ~2 st) or healthy (~3–4 st)?
 - **Resonance.** F2/F3 deeper/neutral/bright (`zones.ts`). Often the biggest lever after pitch.

@@ -39,8 +39,9 @@ export interface Register {
   floor_hz: number;
   in_register_pct: number | null;
   semitones_sd: number | null; // pitch variation over all voiced frames (st)
-  // same, over frames above the floor only. Always <= semitones_sd: it's the
-  // same set minus its low tail, so the gap is arithmetic, not a melody verdict.
+  // same, over frames above the floor only. Usually (not always) smaller than
+  // semitones_sd, since it drops the low tail; the gap mostly tracks time below
+  // the floor, not melody.
   in_register_semitones_sd: number | null;
   onset_sub_pct: number | null; // % sub-register at phrase starts
   mid_sub_pct: number | null; // ...middles

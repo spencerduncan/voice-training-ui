@@ -185,17 +185,6 @@ export function App() {
                   </Note>
                 }
               />
-              <StatCard
-                title="Melody"
-                value={active.register?.in_register_semitones_sd ?? null}
-                unit="st"
-                zones={MELODY_ZONES}
-                lo={0}
-                hi={7}
-                metricKey="melody"
-                onExpand={openModal}
-                sub="how much your pitch moves while you're up in register, in semitones — the ear's unit, so it doesn't drift with how high you sit 🎶"
-              />
               {/* Hz variability is informational only — no zones, no verdict.
                   Hz SD rises with mean pitch, so it can't tell melody apart from
                   simply speaking higher. See the note in zones.ts. */}

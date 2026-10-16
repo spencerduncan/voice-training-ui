@@ -78,10 +78,12 @@ export function RegisterSection() {
         </div>
 
         {/* Both numbers, no "true" vs "inflated" framing: the in-register SD is
-            computed over the same frames minus the ones below the floor, and
-            dropping a distribution's low tail always shrinks its SD. So the gap
-            is arithmetic, not evidence about the melody — it just tracks how
-            much time went below the floor (the card to the left). */}
+            computed over the same frames minus the ones below the floor.
+            Dropping the low tail usually (not always) narrows the SD, so a big
+            gap mostly reflects how much time went below the floor (the card to
+            the left) rather than anything about the melody. It's also a
+            truncated SD with no minimum-frame guard, so it gets shaky when
+            little time was spent above the floor. */}
         <div className="stat">
           <div className="label">
             <span>Melody in register</span>
@@ -92,8 +94,8 @@ export function RegisterSection() {
           </div>
           <div className="sub">
             pitch movement across the time you were above the floor. Over <i>all</i> voiced time
-            it's {fmt(reg.semitones_sd)} st — that one counts the dips too, so it always reads a
-            little wider.
+            it's {fmt(reg.semitones_sd)} st — that one counts the dips too, so it usually reads
+            wider.
           </div>
         </div>
       </div>

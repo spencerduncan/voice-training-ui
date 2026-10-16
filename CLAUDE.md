@@ -183,8 +183,9 @@ voice shape.
 
 ## Click-to-expand reference modal (where you sit vs. real voices)
 
-Every **bar-backed** stat card (Pitch, Loudness, Pitch variability, Clarity/HNR,
-Steadiness/jitter, Weight) **and** the two resonance gauges (F2, F3) are **clickable**. A
+Every **bar-backed** stat card (Pitch, Loudness, Clarity/HNR, Steadiness/jitter, Weight)
+**and** the two resonance gauges (F2, F3) are **clickable** (Pitch variability in Hz is
+informational only — no zones, not clickable — since Hz SD grows with mean pitch). A
 click animates a modal up out of the card showing that metric's full scale with **ticks for
 many audio samples as reference points** — instantly answering "where do I sit?".
 
@@ -196,7 +197,7 @@ many audio samples as reference points** — instantly answering "where do I sit
   keeps each anchored. The currently-selected take is highlighted pink + enlarged.
 - **Web reference voices** as smaller **pink (female `FEM`) / blue (male `MASC`)** ticks below
   the bar — STRICT color rule. Shown only on **gendered** metrics (`showRefs: true` →
-  Pitch, Weight, F2, F3); non-gendered ones (Loudness, variability, HNR, jitter) show her
+  Pitch, Weight, F2, F3); non-gendered ones (Loudness, HNR, jitter) show her
   takes only, with a legend note.
 - A **legend** + the lo/hi axis. The scale auto-stretches lo/hi so every value fits.
 
@@ -285,9 +286,12 @@ and the one place the reference pipeline lives (edit it there, not ad hoc).
 - **Register & phrasing** — the deep layer. Pitch isn't just an average; it's a *contour*.
   We detect where the voice **crashes out of register** (below a floor, default 130 Hz,
   back toward chest voice) and where those crashes cluster within a phrase. Trailing-off
-  phrase **endings** are the classic, high-salience failure. We also report **true
-  in-register melody** (semitone SD with crashes removed) vs. the raw (inflated) number —
-  "lively prosody" is often a mirage of register breaks, not real expression.
+  phrase **endings** are the classic, high-salience failure. We also report **melody in
+  semitones** two ways: over the frames above the floor (`in_register_semitones_sd`, shown in
+  the Register section — never promoted to a headline card) and over all voiced frames
+  (`semitones_sd`). Dips below the floor usually widen the second, so a big gap mostly says how
+  much time went below the floor. The in-register number is a truncated SD with no minimum-frame
+  guard, so treat it as fragile when little time was in register.
 - **Loudness, HNR (clarity/breathiness), jitter/shimmer (steadiness)** — supporting cues.
 
 Caveat to remember: the textbook jitter/shimmer/HNR norms are sustained-vowel clinical
