@@ -142,8 +142,9 @@ emoji pass through untouched, so the set grows one emoji at a time.
   *string* leaves, so it's safe to wrap arbitrary JSX (bold tags, nested elements survive).
 - **Where it's active:** baked into the reusable prose components **`InsightCard`** and
   **`Drill`** (so any emoji authored inside an insight/drill auto-converts — authors touch
-  nothing), and applied inline as `<RichText>…</RichText>` in `RegisterSection`'s register note
-  and `CheatSheet`. The section/hero headings do **not** use this — they use the dedicated
+  nothing), applied by **`<Note>` and `<Region>` themselves** (so every woven note and every
+  authored slot converts, default or override), and inline as `<RichText>…</RichText>` in
+  `CheatSheet`. The section/hero headings do **not** use this — they use the dedicated
   `icons.tsx` components directly.
 - **To use it (author):** just type the emoji inside RichText-covered prose. To cover a new
   prose spot, wrap it with `<RichText>`.
@@ -198,9 +199,13 @@ many audio samples as reference points** — instantly answering "where do I sit
   bumped up into **stacked lanes** (greedy `assignLanes`) so they never overlap; the guide
   keeps each anchored. The currently-selected take is highlighted pink + enlarged.
 - **Web reference voices** as smaller **pink (female `FEM`) / blue (male `MASC`)** ticks below
-  the bar — STRICT color rule. Shown only on **gendered** metrics (`showRefs: true` →
-  Pitch, F2, F3); non-gendered ones (Loudness, HNR, jitter) and Weight (own trend only, still
-  being validated) show her takes only, with a legend note.
+  the bar — STRICT color rule. Shown only on **gendered** metrics whose reference numbers are
+  comparable (`showRefs: true` → Pitch today). F2/F3 are gendered but sit out
+  (`showRefs: false` + a `refNote` legend line, "reference voices are being re-measured with the
+  current analyzer") until `reference.json` is rebuilt with the current formant pipeline — flip
+  them back then; the ResonanceCard counts and the CheatSheet F2 averages follow the same
+  switch. Non-gendered ones (Loudness, HNR, jitter) and Weight (own trend only, still being
+  validated) show her takes only, with a legend note.
 - A **legend** + the lo/hi axis. The scale auto-stretches lo/hi so every value fits.
 
 **Click a dot or a reference tick → a `WaveformPlayer` opens below the scale** and plays that
@@ -294,20 +299,40 @@ and the one place the reference pipeline lives (edit it there, not ad hoc).
   take by several dB, and the direction is unsettled (arithmetically a steeper roll-off gives a
   *larger* value, yet the reference women average *lower*). So the dashboard treats it as
   **her own trend only**: `WEIGHT_ZONES` use neutral GROW/BUTTER with direction names
-  (lighter / mid / heavier), no goal band, **no MASC blue or FEM pink**, and `showRefs: false`
+  (lower / mid / higher — not "lighter/heavier", which would assume the direction), no goal
+  band, **no MASC blue or FEM pink**, and `showRefs: false`
   (no male/female ticks). Every UI sentence about direction reads `WEIGHT_DIRECTION` in
-  `zones.ts` ("lower = lighter and airier, higher = heavier"), so a settled sign changes in
+  `zones.ts` ("lower or higher is not yet validated as a feminine cue; watch your own
+  trend"), so a settled sign changes in
   one place. Don't call weight feminine/masculine in annotations either. `h1a3_db`
   (uncorrected H1–A3) and `tilt_db_khz` (LTAS slope) are stored too as cheap secondaries.
 - **Register & phrasing** — the deep layer. Pitch isn't just an average; it's a *contour*.
-  We detect where the voice **crashes out of register** (below a floor, default 130 Hz,
-  back toward chest voice) and where those crashes cluster within a phrase. Trailing-off
-  phrase **endings** are the classic, high-salience failure. We also report **melody in
-  semitones** two ways: over the frames above the floor (`in_register_semitones_sd`, shown in
-  the Register section — never promoted to a headline card) and over all voiced frames
-  (`semitones_sd`). Dips below the floor usually widen the second, so a big gap mostly says how
-  much time went below the floor. The in-register number is a truncated SD with no minimum-frame
-  guard, so treat it as fragile when little time was in register.
+  - **The floor is take-relative.** By default it sits `REGISTER_FLOOR_ST` (6) semitones under
+    the take's own median F0 (`register.floor_mode: "relative"`, plus `floor_st_below_median`
+    and `median_hz`); `--register-floor <Hz>` forces a fixed one (`floor_mode: "absolute"`).
+    It describes *her own* register instead of grading every voice against one number, so a
+    take that sits low throughout can't be flagged by it — by design; absolute pitch is the
+    Pitch card's job. Never write a fixed floor number in UI copy; read `floor_hz`.
+  - **Every frame has a state** (`frames.state` in the detail JSON): 1 in register, 2 a brief
+    **dip** under the floor, 3 a **sustained drop** (the analyzer's "crash": ≥ 200 ms of
+    non-creak voicing under the floor), 4 **creak**. Only a sustained drop is falling out of
+    register, and it's the only thing painted masc blue; dips are butter, creak is GROW grey.
+  - **Creak is not a register fall.** It's reported on its own (`creak_pct`, per-phrase
+    `creak_pct`) and some creak at phrase ends is normal. Never frame it as dropping out.
+  - `in_register_pct` = share of non-creak voiced time *not* inside a sustained drop. Fluent
+    speech reads ~100%, so present it as "time without a sustained drop", never as a grade.
+  - **Position bins** are a phrase's **first third / middle / last third**
+    (`onset/mid/offset_sub_pct`, the sustained-drop share in each). **"Phrase endings"**
+    means `phrases_landed_pct` and nothing else: an ending holds unless most of its last
+    120 ms of non-creak voicing is in a sustained drop. The default register tip names
+    whichever third dropped most (not always the endings), and when `n_crashes` is 0 it
+    just says warmly that nothing dropped out.
+  - **Melody in semitones**, two ways: `in_register_semitones_sd` over steady in-register
+    speech (creak, drops and octave jumps removed; shown in the Register section — never a
+    headline card) and `semitones_sd` over all voiced frames. The gap is mostly creak, drops
+    and tracker jumps, not melody. The in-register number is **null** unless ≥ 50 frames and
+    ≥ 30% of voicing survive; the UI then says "not enough steady voiced speech to judge
+    melody yet" instead of a dash.
 - **Loudness, HNR (clarity/breathiness), jitter/shimmer (steadiness)** — supporting cues.
 
 Caveat to remember: the textbook jitter/shimmer/HNR norms are sustained-vowel clinical
@@ -419,10 +444,17 @@ the top sections + which annotation file loads.
   IDE's TS server often lags behind file moves; a restart clears it.
 - **Data flow:** `analyze.py` writes everything additively and idempotently per id. The
   React app never imports data statically — it fetches at runtime. Don't hardcode data.
-- **Register methodology** (in `analyze.py`): F0 contour via `Sound.to_pitch`; semitones =
-  `12*log2(hz/100)` (perceptual; SD is reference-independent); phrase segmentation via
-  Praat `To TextGrid (silences)` on an Intensity object; per-frame position binned into
-  phrase thirds; "landed in register" = mean offset pitch ≥ floor.
+- **Register methodology** (in `analyze.py`; constants at the top of the file): F0 contour via
+  `Sound.to_pitch`; semitones = `12*log2(hz/100)` (perceptual; SD is reference-independent).
+  Octave errors (> 1.8× or < 0.55× the take median) are dropped before pitch extremes and
+  melody. Floor = median − 6 st unless `--register-floor` is given. **Creak** = a run below
+  0.6× median whose Praat pitch strength is < 0.8 or that has a ~2× candidate (≥ 0.3) —
+  a periodic modal drop into a lower register is *not* creak. **Sustained drop** = ≥ 200 ms of
+  sub-floor non-creak voicing, bridging consonant gaps up to 150 ms; shorter excursions are
+  dips. **Phrases**: frames more than 25 dB under the take's 95th-percentile intensity are
+  silence, gaps < 250 ms merge, phrases < 0.5 s or with < 20 voiced frames are dropped.
+  Per-frame position is binned into phrase thirds. Pitch min/max/range are the p5/p95 of the
+  cleaned track (`p5_hz`/`p95_hz` too) — the typical span, not the extremes.
 - **`base: './'`** is set in `vite.config.ts`. Note: opening the built `dist/index.html`
   from `file://` won't work (browsers block `fetch` of the JSON) — use `npm run dev`/preview.
 - When in doubt about a metric or model, prefer the dedicated skill and verify with a build.

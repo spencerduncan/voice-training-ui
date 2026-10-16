@@ -7,6 +7,7 @@ import {
 } from "react";
 import type { Recording, RecordingDetail } from "../types";
 import type { RecordingAnnotations } from "./types";
+import { RichText } from "../components/RichText";
 
 // Auto-discovery: one file per recording at entries/<NNN>.tsx (zero-padded id),
 // default-exporting a RecordingAnnotations. Vite resolves this glob and HMR
@@ -107,7 +108,7 @@ export function AnnotationsProvider({
 export function Note({ id, children }: { id: string; children?: ReactNode }) {
   const { ann, recording, detail } = useAnnotations();
   const fn = ann?.slots?.[id];
-  return <>{fn ? fn({ recording, detail }) : children}</>;
+  return <RichText>{fn ? fn({ recording, detail }) : children}</RichText>;
 }
 
 // Insertion slot: renders the agent's content for `id` if present, else `empty`

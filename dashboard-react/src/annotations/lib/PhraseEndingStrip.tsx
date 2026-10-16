@@ -1,9 +1,11 @@
 import type { RecordingDetail } from "../../types";
 import { MASC, FEM } from "../../zones";
 
-// Focused viz for "register at phrase boundaries": one dot per phrase ENDING,
-// plotted at its offset pitch, with the register floor drawn across. Pink dot =
-// landed in register; blue dot = trailed off below it.
+// Focused viz for phrase endings (the same definition as phrases_landed_pct):
+// one dot per phrase ENDING, plotted at its offset pitch (the last non-creak
+// frame), with the register floor drawn across. Pink dot = the ending held;
+// blue dot = it ended inside a sustained drop. An ending can sit a little under
+// the floor and still hold — only a sustained drop counts as falling out.
 export function PhraseEndingStrip({ detail }: { detail: RecordingDetail }) {
   const floor = detail.register_floor_hz;
   const phrases = detail.phrases;
@@ -63,13 +65,13 @@ export function PhraseEndingStrip({ detail }: { detail: RecordingDetail }) {
           >
             <title>
               phrase {i + 1}: ended at {p.offset_hz} Hz —{" "}
-              {p.ended_in_register ? "landed in register 💕" : "fell out"}
+              {p.ended_in_register ? "the ending held 💕" : "dropped out of register"}
             </title>
           </circle>
         </g>
       ))}
       <text x={pad.l} y={H - 6} fontSize="10" fill="#756384">
-        each dot = a phrase ending · blue = fell out of register
+        each dot = a phrase ending · blue = it dropped out of register
       </text>
     </svg>
   );

@@ -43,11 +43,18 @@ export function RecordingCard({ r, onSelect, current }: Props) {
           <b>{fmt(r.pitch.mean_hz)}</b>
           <span>pitch Hz</span>
         </div>
-        <div className="chip">
+        <div
+          className="chip"
+          title={
+            r.pitch.p5_hz !== undefined
+              ? "typical span: 5th to 95th percentile of your pitch"
+              : "lowest to highest pitch (older analysis)"
+          }
+        >
           <b>
-            {fmt(r.pitch.min_hz)}–{fmt(r.pitch.max_hz)}
+            {fmt(r.pitch.p5_hz ?? r.pitch.min_hz)}–{fmt(r.pitch.p95_hz ?? r.pitch.max_hz)}
           </b>
-          <span>range Hz</span>
+          <span>{r.pitch.p5_hz !== undefined ? "typical span Hz" : "range Hz"}</span>
         </div>
         <div className="chip">
           <b>{fmt(r.formants.f2_hz)}</b>

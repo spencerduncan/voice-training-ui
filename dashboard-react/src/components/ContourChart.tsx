@@ -1,17 +1,41 @@
-import type { RecordingDetail } from "../types";
-import { MASC, FEM } from "../zones";
+import { FRAME_STATE, type RecordingDetail } from "../types";
+import { MASC, FEM, CONTOUR, PITCH_ZONES, goalOf } from "../zones";
 
 interface Props {
   detail: RecordingDetail;
   femThreshold?: number; // Hz that reads feminine (for the soft pink band)
 }
 
-// The pitch contour over time, with the register floor drawn across it.
-// Frames that crash BELOW the floor are painted blue (the masculine register),
-// so register breaks at phrase endings jump out visually. Phrase boundaries
-// are marked with soft dividers and a dot under each ending (pink = landed in
-// register, blue = fell out).
-export function ContourChart({ detail, femThreshold = 165 }: Props) {
+type Kind = "in" | "dip" | "crash" | "creak";
+
+const STROKE: Record<Kind, { color: string; width: number; dash?: string }> = {
+  in: { color: CONTOUR.inRegister, width: 2.4 },
+  dip: { color: CONTOUR.dip, width: 3 },
+  crash: { color: CONTOUR.crash, width: 3 },
+  creak: { color: CONTOUR.creak, width: 3.6, dash: "3 3" },
+};
+
+// Per-frame colour. Current analyses carry frames.state (1 in register, 2 a
+// brief dip under the floor, 3 a sustained drop, 4 creak); older ones don't,
+// so those fall back to the plain floor test — and then anything under the
+// floor is drawn as a drop, which is all an old analysis can say.
+function kindOf(state: number | undefined, hz: number, floor: number): Kind {
+  if (state === undefined) return hz < floor ? "crash" : "in";
+  if (state === FRAME_STATE.crash) return "crash";
+  if (state === FRAME_STATE.dip) return "dip";
+  if (state === FRAME_STATE.creak) return "creak";
+  return "in";
+}
+
+// The pitch contour over time, with the register floor drawn across it. Only
+// SUSTAINED drops are painted blue (masculine register); brief dips are butter
+// and creak is a dashed neutral grey, so a bit of vocal fry at a phrase end
+// never reads as a fall. Phrase boundaries are marked with soft dividers and a
+// dot under each phrase ending (pink = the ending held, blue = it dropped).
+export function ContourChart({
+  detail,
+  femThreshold = goalOf(PITCH_ZONES)?.from ?? PITCH_ZONES[PITCH_ZONES.length - 1].from,
+}: Props) {
   const W = 900;
   const H = 240;
   const pad = { l: 40, r: 14, t: 14, b: 40 };
@@ -19,7 +43,7 @@ export function ContourChart({ detail, femThreshold = 165 }: Props) {
   const ih = H - pad.t - pad.b;
 
   const floor = detail.register_floor_hz;
-  const { t, hz } = detail.frames;
+  const { t, hz, state } = detail.frames;
   const dur = detail.duration_s || t[t.length - 1] || 1;
 
   const voiced = hz.filter((v): v is number => v != null);
@@ -27,36 +51,50 @@ export function ContourChart({ detail, femThreshold = 165 }: Props) {
   const minHz = Math.min(80, floor - 20, ...voiced);
 
   const x = (time: number) => pad.l + (time / dur) * iw;
-  const y = (f: number) =>
-    pad.t + (1 - (f - minHz) / (maxHz - minHz)) * ih;
+  const y = (f: number) => pad.t + (1 - (f - minHz) / (maxHz - minHz)) * ih;
 
-  // Build contour segments, split into "in register" vs "crashed" runs so each
-  // can be stroked its own color. A run breaks on unvoiced gaps too.
-  type Seg = { below: boolean; pts: [number, number][] };
+  // Build contour segments, one per run of the same kind, so each can be
+  // stroked its own colour. A run breaks on unvoiced gaps too. When the kind
+  // changes mid-run the new segment starts at the previous point, so the line
+  // stays continuous instead of leaving a one-frame gap at every change.
+  type Seg = { kind: Kind; pts: [number, number][] };
   const segs: Seg[] = [];
   let cur: Seg | null = null;
+  let last: [number, number] | null = null; // previous voiced point in this run
   for (let i = 0; i < hz.length; i++) {
     const f = hz[i];
-    if (f == null) {
+    if (f == null || state?.[i] === FRAME_STATE.unvoiced) {
       cur = null;
+      last = null;
       continue;
     }
-    const below = f < floor;
-    if (!cur || cur.below !== below) {
-      cur = { below, pts: [] };
+    const kind = kindOf(state?.[i], f, floor);
+    const pt: [number, number] = [x(t[i]), y(f)];
+    if (!cur || cur.kind !== kind) {
+      cur = { kind, pts: last ? [last] : [] };
       segs.push(cur);
     }
-    cur.pts.push([x(t[i]), y(f)]);
+    cur.pts.push(pt);
+    last = pt;
   }
   const toPath = (pts: [number, number][]) =>
     pts.map((p, k) => `${k ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
+  // draw drops on top so they never hide under a neighbouring segment
+  const order: Kind[] = ["creak", "dip", "in", "crash"];
+  const drawn = [...segs].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
 
   const yTicks = [minHz, floor, femThreshold, maxHz].filter(
     (v, i, a) => a.indexOf(v) === i && v <= maxHz && v >= minHz,
   );
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" className="contour">
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      width="100%"
+      className="contour"
+      role="img"
+      aria-label={`Pitch contour over ${detail.phrases.length} phrases, with the register floor at ${floor} Hz`}
+    >
       {/* feminine band (soft pink, above the fem threshold) */}
       <rect
         x={pad.l}
@@ -66,14 +104,14 @@ export function ContourChart({ detail, femThreshold = 165 }: Props) {
         fill={FEM}
         opacity={0.12}
       />
-      {/* sub-register band (blue, below the floor) */}
+      {/* under-the-floor band (blue: out-of-register territory) */}
       <rect
         x={pad.l}
         y={y(floor)}
         width={iw}
         height={y(minHz) - y(floor)}
         fill={MASC}
-        opacity={0.22}
+        opacity={0.18}
       />
 
       {/* register floor line */}
@@ -111,20 +149,23 @@ export function ContourChart({ detail, femThreshold = 165 }: Props) {
       ))}
 
       {/* the contour */}
-      {segs.map((s, k) => (
-        <path
-          key={`s${k}`}
-          d={toPath(s.pts)}
-          fill="none"
-          stroke={s.below ? "#5e7fb8" : "#e07ab0"}
-          strokeWidth={s.below ? 3 : 2.4}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          opacity={s.below ? 1 : 0.9}
-        />
-      ))}
+      {drawn.map((s, k) => {
+        const st = STROKE[s.kind];
+        return (
+          <path
+            key={`s${k}`}
+            d={toPath(s.pts)}
+            fill="none"
+            stroke={st.color}
+            strokeWidth={st.width}
+            strokeDasharray={st.dash}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        );
+      })}
 
-      {/* per-phrase landing dots (under each phrase ending) */}
+      {/* per-phrase ending dots (under each phrase's end) */}
       {detail.phrases.map((p, k) => (
         <circle
           key={`l${k}`}
@@ -136,8 +177,8 @@ export function ContourChart({ detail, femThreshold = 165 }: Props) {
           strokeWidth={1.5}
         >
           <title>
-            phrase {k + 1}: ended {p.offset_hz} Hz —{" "}
-            {p.ended_in_register ? "landed in register 💕" : "fell out of register"}
+            phrase {k + 1}: ended at {p.offset_hz} Hz —{" "}
+            {p.ended_in_register ? "the ending held 💕" : "the ending dropped out of register"}
           </title>
         </circle>
       ))}
@@ -145,7 +186,7 @@ export function ContourChart({ detail, femThreshold = 165 }: Props) {
         time →
       </text>
       <text x={W - pad.r} y={H - 6} fontSize="10" fill="#756384" textAnchor="end">
-        ● dots = how each phrase landed
+        ● dots = whether each phrase ending held
       </text>
     </svg>
   );

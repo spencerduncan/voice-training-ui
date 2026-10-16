@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { RichText } from "./RichText";
+import { METRICS } from "../metrics";
 import type { ReferenceVoice } from "../types";
 import {
   PITCH_ZONES,
@@ -73,8 +74,11 @@ function refMean(
 // Real React collapsible (controlled <details>-style) for the cheat sheet.
 export function CheatSheet({ references = [] }: { references?: ReferenceVoice[] }) {
   const [open, setOpen] = useState(false);
-  const f2f = refMean(references, (r) => r.formants?.f2_hz, "f");
-  const f2m = refMean(references, (r) => r.formants?.f2_hz, "m");
+  // F2 averages only once reference.json is measured like the takes (the same
+  // switch that shows its ticks in the modal)
+  const f2f = METRICS.f2.showRefs ? refMean(references, (r) => r.formants?.f2_hz, "f") : null;
+  const f2m = METRICS.f2.showRefs ? refMean(references, (r) => r.formants?.f2_hz, "m") : null;
+  const pitchGoal = goalOf(PITCH_ZONES);
   const hnrAvg = refMean(references, (r) => r.voice_quality?.hnr_db);
   const jitAvg = refMean(references, (r) => r.voice_quality?.jitter_pct, undefined, 1);
   return (
@@ -94,9 +98,14 @@ export function CheatSheet({ references = [] }: { references?: ReferenceVoice[] 
             The average highness of your voice — the loudest single cue, though
             never a solo act. Ears read <b>pitch and resonance together</b>: in
             listening studies, moving one without the other usually didn't change
-            how a voice was heard, while moving both usually did. So 165 Hz is
-            where the in-between range <i>tops out</i> and resonance starts doing
-            the deciding — not a line you cross.
+            how a voice was heard, while moving both usually did.
+            {pitchGoal && (
+              <>
+                {" "}So {pitchGoal.from} Hz is where the in-between range{" "}
+                <i>tops out</i> and resonance starts doing the deciding — not a
+                line you cross.
+              </>
+            )}
           </p>
           <div className="guide">
             <ZoneGuide zones={PITCH_ZONES} unit=" Hz" />
@@ -110,10 +119,13 @@ export function CheatSheet({ references = [] }: { references?: ReferenceVoice[] 
         <div className="gloss-item">
           <h4>🌊 Pitch range &amp; melody</h4>
           <p>
-            How far your pitch travels (range) and how much it dances around
-            (melody). Melody is read in <b>semitones</b>, not Hz: the same tune
-            measures bigger in Hz the higher a voice sits, so the Hz number
-            can't tell melody apart from simply speaking higher.
+            Where your pitch typically travels (range — the 5th to 95th
+            percentile, so a stray blip doesn't count) and how much it dances
+            around (melody). Melody is measured over your steady in-register
+            speech, with creak and drops left out, and in <b>semitones</b>{" "}
+            rather than Hz: the same tune measures bigger in Hz the higher a
+            voice sits, so the Hz number can't tell melody apart from simply
+            speaking higher.
           </p>
           <div className="guide">
             melody: <ZoneGuide zones={MELODY_ZONES} unit=" st" />
@@ -137,7 +149,9 @@ export function CheatSheet({ references = [] }: { references?: ReferenceVoice[] 
             F2: <ZoneGuide zones={F2_ZONES} unit=" Hz" />
             {f2f !== null && f2m !== null
               ? ` (real women avg ~${f2f}, men ~${f2m}; still varies by vowel)`
-              : " (still varies a lot by vowel)"}
+              : !METRICS.f2.showRefs
+                ? ` (${METRICS.f2.refNote}; still varies a lot by vowel)`
+                : " (still varies a lot by vowel)"}
           </div>
           <div className="tip">
             💗 To brighten: smile slightly, lift the voice toward the front of
@@ -205,7 +219,7 @@ export function CheatSheet({ references = [] }: { references?: ReferenceVoice[] 
             near your pitch (H1) minus the harmonic near F3 (A3), each{" "}
             <b>formant-corrected</b> so it isolates the <b>source</b> (your vocal
             folds, how they vibrate) from the <b>filter</b> (the shape of your
-            throat &amp; mouth). Here, {WEIGHT_DIRECTION}. It's a difference of
+            throat &amp; mouth). Which way is lighter isn't settled: {WEIGHT_DIRECTION}. It's a difference of
             two harmonics, so it compares across takes better than raw loudness
             dB. This measure is <b>still being validated</b> — it wobbles with
             creaky or mistracked frames — so it's shown as <b>your own trend</b>{" "}

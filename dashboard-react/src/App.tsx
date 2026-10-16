@@ -138,8 +138,8 @@ export function App() {
               <BowIcon /> {isLatest ? "Latest take" : `Take #${active.id}`}
             </h2>
             <p className="take-hint">
-              🔍 tap any card with a colored bar to see how you compare to real
-              voices
+              🔍 tap any card with a colored bar to see its full scale, with
+              all your takes on it
             </p>
             <div className="stat-grid">
               <StatCard
@@ -162,28 +162,43 @@ export function App() {
                       </>
                     ) : pz.name === "fem" ? (
                       <>
-                        you're in the <b>fem</b> zone — 165 Hz is the top of the
-                        in-between range, and resonance takes it from there 🌱
+                        you're in the <b>fem</b> zone
+                        {pitchGoal && <> — {pitchGoal.from} Hz is the top of the
+                        in-between range</>}, and resonance takes it from there 🌱
                       </>
                     ) : (
                       <>
-                        you're in the <b>{pz.name}</b> zone — 165 Hz is where the
-                        in-between range tops out, and pitch &amp; resonance
+                        you're in the <b>{pz.name}</b> zone
+                        {pitchGoal && <> — {pitchGoal.from} Hz is where the
+                        in-between range tops out</>}, and pitch &amp; resonance
                         decide together from there 🌱
                       </>
                     )}
                   </Note>
                 }
               />
+              {/* The typical span (5th–95th percentile), not the extremes:
+                  one octave blip or a creaky ending used to stretch this to
+                  hundreds of Hz. It's a description of where the voice
+                  travelled, not a score, so there's no "wider = better". */}
               <StatCard
                 title="Pitch range"
                 value={active.pitch.range_hz}
                 unit="Hz"
                 sub={
-                  <>
-                    {fmt(active.pitch.min_hz)}–{fmt(active.pitch.max_hz)} Hz ·
-                    wider = more melodic & expressive
-                  </>
+                  active.pitch.p5_hz !== undefined ? (
+                    <>
+                      {fmt(active.pitch.p5_hz)}–{fmt(active.pitch.p95_hz)} Hz ·
+                      your typical span, 5th to 95th percentile, so a stray blip
+                      or a creaky ending doesn't stretch it
+                    </>
+                  ) : (
+                    <>
+                      {fmt(active.pitch.min_hz)}–{fmt(active.pitch.max_hz)} Hz ·
+                      lowest to highest (an older analysis — re-run it for the
+                      typical span)
+                    </>
+                  )
                 }
               />
               <StatCard
@@ -251,9 +266,8 @@ export function App() {
                   <Note id="note.weight">
                     source spectral tilt (corrected H1*–A3*) — the <i>thickness</i>{" "}
                     of the voice itself, separate from pitch &amp; resonance ·{" "}
-                    {WEIGHT_DIRECTION}. Read it as <b>your own trend</b>; the
-                    measure is still being validated, so it isn't compared with
-                    anyone else's voice.
+                    {WEIGHT_DIRECTION}. The measure is still being validated, so
+                    it isn't compared with anyone else's voice.
                   </Note>
                 }
               />
@@ -337,14 +351,14 @@ export function App() {
           />
           <ChartCard
             h="In-register melody"
-            cap="pitch movement in semitones, above-floor time only"
+            cap="pitch movement in semitones, over steady in-register speech"
             color="#9b7ad0"
             data={mk((r) => r.register?.in_register_semitones_sd ?? null)}
             bands={MELODY_ZONES}
           />
           <ChartCard
-            h="Phrase endings landed"
-            cap="% of phrases that stayed in register"
+            h="Endings that held"
+            cap="% of phrase endings that stayed up in register"
             color="#5fb89a"
             data={mk((r) => r.register?.phrases_landed_pct ?? null)}
             band={[80, 100]}
@@ -359,7 +373,7 @@ export function App() {
           />
           <ChartCard
             h="Weight"
-            cap={`spectral tilt · ${WEIGHT_DIRECTION} · your own trend`}
+            cap={`spectral tilt · ${WEIGHT_DIRECTION}`}
             color="#8d7ba3" /* neutral lavender-grey: weight carries no pink/blue meaning */
             data={mk((r) => r.weight?.h1a3c_db ?? null)}
             bands={WEIGHT_ZONES}

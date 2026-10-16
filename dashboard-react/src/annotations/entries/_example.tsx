@@ -61,8 +61,10 @@ const annotations: RecordingAnnotations = {
           title="One clear, clockable headline for this take 🎯"
           subtitle="More specific than generic advice — name the moment + the fix."
           badges={[
-            `${fmt(reg.offset_sub_pct)}% sub-register at endings`,
-            `melody ${fmt(reg.in_register_semitones_sd)} st`,
+            `${fmt(reg.phrases_landed_pct)}% of phrase endings held`,
+            reg.in_register_semitones_sd == null
+              ? "melody: not enough steady speech yet"
+              : `melody ${fmt(reg.in_register_semitones_sd)} st`,
           ]}
         >
           <p>

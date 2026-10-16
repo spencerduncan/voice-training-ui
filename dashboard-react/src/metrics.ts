@@ -13,7 +13,16 @@ import {
   WEIGHT_DIRECTION,
   F2_ZONES,
   F3_ZONES,
+  goalOf,
 } from "./zones";
+
+// Shown in the modal legend while a metric's reference voices sit out: the
+// shipped reference.json was measured before the current analyzer's formant
+// and weight changes, so its F2/F3/weight values aren't comparable to new
+// takes until it's rebuilt. Flip `showRefs` back once it is.
+const REMEASURING = "reference voices are being re-measured with the current analyzer";
+
+const pitchGoal = goalOf(PITCH_ZONES);
 
 export type MetricKey =
   | "pitch"
@@ -37,8 +46,11 @@ export interface MetricDef {
   ref: (v: ReferenceVoice) => number | null | undefined;
   // whether reference (real men's/women's) ticks are meaningful here.
   // gendered metrics (pitch, F2, F3) → show refs; skill/non-gendered → her
-  // only. Weight is her own trend only until the measure is validated.
+  // only. Weight is her own trend only until the measure is validated, and
+  // F2/F3 sit out until reference.json is re-measured (see refNote).
   showRefs: boolean;
+  // why the reference ticks are missing, when it's not simply "not gendered"
+  refNote?: string;
   // one-line framing shown in the modal header
   blurb: string;
 }
@@ -54,7 +66,9 @@ export const METRICS: Record<MetricKey, MetricDef> = {
     take: (r) => r.pitch.mean_hz,
     ref: (v) => v.pitch.mean_hz,
     showRefs: true,
-    blurb: "where you sit vs. real men's & women's voices · 165 Hz is the top of the in-between range, not a finish line",
+    blurb: pitchGoal
+      ? `where you sit vs. real men's & women's voices · ${pitchGoal.from} Hz is the top of the in-between range, not a finish line`
+      : "where you sit vs. real men's & women's voices",
   },
   loudness: {
     key: "loudness",
@@ -102,7 +116,8 @@ export const METRICS: Record<MetricKey, MetricDef> = {
     take: (r) => r.weight?.h1a3c_db ?? null,
     ref: (v) => v.weight.h1a3c_db,
     showRefs: false,
-    blurb: `source spectral tilt (corrected H1*–A3*) · ${WEIGHT_DIRECTION} · read it as your own trend; the measure is still being validated, so no reference voices here`,
+    blurb: `source spectral tilt (corrected H1*–A3*) · ${WEIGHT_DIRECTION}`,
+    refNote: "no reference voices here while the measure is being validated",
   },
   f2: {
     key: "f2",
@@ -113,7 +128,8 @@ export const METRICS: Record<MetricKey, MetricDef> = {
     hi: 2000,
     take: (r) => r.formants.f2_hz,
     ref: (v) => v.formants?.f2_hz,
-    showRefs: true,
+    showRefs: false,
+    refNote: REMEASURING,
     blurb: "main brightness cue · median over vowel nuclei · higher = a brighter, smaller-sounding space · real voices land on both sides of these bands",
   },
   f3: {
@@ -125,7 +141,8 @@ export const METRICS: Record<MetricKey, MetricDef> = {
     hi: 3400,
     take: (r) => r.formants.f3_hz,
     ref: (v) => v.formants?.f3_hz,
-    showRefs: true,
+    showRefs: false,
+    refNote: REMEASURING,
     blurb: "supports brightness · higher = brighter / lighter resonance",
   },
 };

@@ -1,22 +1,22 @@
-import { FEM, GROW, MASC } from "../../zones";
+import { FEM, GROW } from "../../zones";
 
 // MelodyArc — a tiny sparkline of how melody has moved across takes. Once there
 // are several recordings, the single most important story ("is the TUNE getting
 // livelier?") is a trend, not a single number — so this plots it over time.
 //
 // Two series per take:
-//   • In-register melody (solid pink line + dots) — semitone SD over the
-//     frames above the register floor.
-//   • All-voiced semitone SD (faint dashed grey) — the same, including the dips
-//     below the floor, so it usually reads wider.
-// The GAP between them mostly tracks how much time went below the floor; it is
-// not by itself a verdict on the melody. An optional dashed target line marks
-// a goal (e.g. her best take's melody).
+//   • In-register melody (solid pink line + dots) — semitone SD over steady
+//     in-register speech (creak, sustained drops and octave jumps removed).
+//     Null when too little steady speech survived — that take is skipped.
+//   • All-voiced semitone SD (faint dashed grey) — the same over every voiced
+//     frame, creak and drops included, so it usually reads wider.
+// The GAP between them is mostly creak, drops and pitch-tracking jumps; it is
+// not by itself a verdict on the melody, and since creak is usually the bulk
+// of it, it is drawn in neutral GROW grey — never masc blue. An optional
+// dashed target line marks a goal (e.g. her best take's melody).
 //
 // Color note: this is a non-gendered SKILL trend (flat → lively), so pink = the
-// in-register melody, grey = the all-voiced line. Blue (MASC) is used ONLY
-// for the small "dips below floor" gap label, because that gap literally is
-// pitch falling toward masculine register. That's the sanctioned meaning of blue.
+// in-register melody, grey = the all-voiced line and the gap. No blue here.
 export interface MelodyPoint {
   /** take id / label for the x-axis tick (e.g. "1".."5") */
   label: string;
@@ -92,9 +92,9 @@ export function MelodyArc({
         if (yr >= yt) return null;
         return (
           <g key={`gap${i}`}>
-            <line x1={x(i)} x2={x(i)} y1={yr} y2={yt} stroke={MASC} strokeWidth={9} opacity={0.4} strokeLinecap="round" />
-            <text x={x(i) - 12} y={(yr + yt) / 2 + 3} fontSize="10" fill="#5e7fb8" textAnchor="end">
-              dips below floor
+            <line x1={x(i)} x2={x(i)} y1={yr} y2={yt} stroke={GROW} strokeWidth={9} opacity={0.55} strokeLinecap="round" />
+            <text x={x(i) - 12} y={(yr + yt) / 2 + 3} fontSize="10" fill="#756384" textAnchor="end">
+              creak, drops &amp; jumps
             </text>
           </g>
         );
@@ -104,7 +104,7 @@ export function MelodyArc({
       <path d={toPath(rawPts)} fill="none" stroke={GROW} strokeWidth={2} strokeDasharray="4 4" opacity={0.85} />
       {rawPts.map((p, i) => p && (
         <circle key={`r${i}`} cx={p[0]} cy={p[1]} r={3} fill={GROW} stroke="#fff" strokeWidth={1}>
-          <title>take {points[i].label}: raw swing {points[i].rawSt} st (all voiced time, incl. dips below the floor)</title>
+          <title>take {points[i].label}: raw swing {points[i].rawSt} st (all voiced time, creak and drops included)</title>
         </circle>
       ))}
 
@@ -125,7 +125,7 @@ export function MelodyArc({
         </text>
       ))}
       <text x={pad.l} y={H - 2} fontSize="10" fill="#756384">
-        pink = in-register melody · grey dashed = all voiced time (counts the dips below the floor)
+        pink = in-register melody · grey dashed = all voiced time (counts creak and drops too)
       </text>
     </svg>
   );

@@ -459,7 +459,9 @@ export function MetricModal({
             </>
           ) : (
             <span className="mm-legend-note">
-              {REF_METRIC_TITLES.length > 0
+              {metric.refNote
+                ? metric.refNote
+                : REF_METRIC_TITLES.length > 0
                 ? `reference voices show on the gendered metrics — ${REF_METRIC_TITLES.join(" · ")}`
                 : "just your own takes here"}
             </span>
