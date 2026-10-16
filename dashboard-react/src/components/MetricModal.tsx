@@ -468,13 +468,14 @@ export function MetricModal({
 
         {/* The ticks are a sample, not a finish line. Without this the pink/blue
             rows read as "get over there", which is the wrong objective — the
-            bands are drawn at group averages and real voices land on both sides
-            of their own band. Count comes from refTicks (what actually rendered
+            bands are rough guides drawn between the groups (not at either
+            group's average), and real voices land on both sides of them. Count comes from refTicks (what actually rendered
             for THIS metric), not references.length, so it can never overstate. */}
         {metric.showRefs && refTicks.length > 0 && (
           <p className="mm-context">
             where {refTicks.length} recorded voices actually landed — a spread,
-            not a line to reach. the bands sit at their group averages.
+            not a line to reach. the bands are rough guides drawn between the
+            groups, and real voices land on both sides of them.
           </p>
         )}
       </div>

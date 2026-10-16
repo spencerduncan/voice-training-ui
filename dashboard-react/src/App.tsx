@@ -254,7 +254,7 @@ export function App() {
                 · the "size" your voice sounds, separate from pitch
               </span>
             </h2>
-            <ResonanceCard r={active} onExpand={openModal} />
+            <ResonanceCard r={active} onExpand={openModal} references={references} />
           </section>
 
           <Region id="region.afterResonance" />
