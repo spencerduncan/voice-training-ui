@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FiVolume2 } from "react-icons/fi";
 import type { Recording, ReferenceVoice } from "../types";
-import type { MetricDef } from "../metrics";
+import { METRICS, type MetricDef } from "../metrics";
 import { MASC, FEM, fmt } from "../zones";
 import { WaveformPlayer } from "./WaveformPlayer";
 
@@ -37,6 +37,13 @@ interface Selected {
 }
 
 const clampPct = (p: number) => Math.min(100, Math.max(0, p));
+
+// Which metrics actually carry male/female reference ticks. Derived from the
+// registry (not hand-listed) so the legend can never drift when a metric's
+// `showRefs` flips in metrics.ts.
+const REF_METRIC_TITLES = Object.values(METRICS)
+  .filter((m) => m.showRefs)
+  .map((m) => m.title);
 
 // vertical spacing for stacked take markers (px)
 const TAKE_ROW = 22; // height of one stack lane
@@ -93,14 +100,84 @@ export function MetricModal({
     );
   };
 
-  // Esc to close
+  // onClose can be a fresh closure each render; keep it in a ref so the
+  // focus-management effect below can run exactly once (on mount/unmount)
+  // without re-stealing focus or re-locking scroll mid-session.
+  const onCloseRef = useRef(onClose);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    onCloseRef.current = onClose;
   }, [onClose]);
+
+  // Focus management + scroll lock, so a keyboard / screen-reader user actually
+  // ends up *inside* the dialog instead of stranded behind it:
+  //   · move focus into the card on open (its aria-label gets announced)
+  //   · trap Tab / Shift+Tab within the card
+  //   · restore focus to whatever opened it (the stat card) on close
+  //   · lock body scroll while it's up
+  // Esc-to-close lives here too, alongside the Tab handling.
+  useEffect(() => {
+    const card = cardRef.current;
+    const prevFocused = document.activeElement as HTMLElement | null;
+    const prevOverflow = document.body.style.overflow;
+    const prevPadRight = document.body.style.paddingRight;
+
+    // Hiding the page scrollbar widens the layout by its width, which nudged
+    // the centred page sideways under the backdrop. Pad the body by the same
+    // amount so nothing moves (overlay scrollbars measure 0 and skip this).
+    const scrollbar = window.innerWidth - document.documentElement.clientWidth;
+    if (scrollbar > 0) {
+      const pad = parseFloat(getComputedStyle(document.body).paddingRight) || 0;
+      document.body.style.paddingRight = `${pad + scrollbar}px`;
+    }
+    document.body.style.overflow = "hidden";
+    card?.focus();
+
+    const FOCUSABLE =
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== "Tab" || !card) return;
+
+      const items = Array.from(
+        card.querySelectorAll<HTMLElement>(FOCUSABLE),
+      ).filter((el) => el.offsetParent !== null || el === document.activeElement);
+      const here = document.activeElement as HTMLElement | null;
+
+      if (items.length === 0) {
+        // nothing tabbable inside — keep focus on the card itself
+        e.preventDefault();
+        card.focus();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      const inside = here != null && card.contains(here);
+
+      if (e.shiftKey) {
+        if (!inside || here === first || here === card) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else if (!inside || here === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+      document.body.style.paddingRight = prevPadRight;
+      // the trigger card may have been unmounted (e.g. take switched) — only
+      // hand focus back if it's still on the page
+      if (prevFocused && document.contains(prevFocused)) prevFocused.focus();
+    };
+  }, []);
 
   // Scale: stretch the metric's lo/hi so every real value (takes + refs) fits.
   const { lo, hi } = useMemo(() => {
@@ -190,6 +267,7 @@ export function MetricModal({
         role="dialog"
         aria-modal="true"
         aria-label={`${metric.title} reference scale`}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         <button className="mm-close" onClick={onClose} aria-label="close">
@@ -381,10 +459,25 @@ export function MetricModal({
             </>
           ) : (
             <span className="mm-legend-note">
-              reference voices shown on gendered metrics (Pitch, Weight)
+              {REF_METRIC_TITLES.length > 0
+                ? `reference voices show on the gendered metrics — ${REF_METRIC_TITLES.join(" · ")}`
+                : "just your own takes here"}
             </span>
           )}
         </div>
+
+        {/* The ticks are a sample, not a finish line. Without this the pink/blue
+            rows read as "get over there", which is the wrong objective — the
+            bands are rough guides drawn between the groups (not at either
+            group's average), and real voices land on both sides of them. Count comes from refTicks (what actually rendered
+            for THIS metric), not references.length, so it can never overstate. */}
+        {metric.showRefs && refTicks.length > 0 && (
+          <p className="mm-context">
+            where {refTicks.length} recorded voices actually landed — a spread,
+            not a line to reach. the bands are rough guides drawn between the
+            groups, and real voices land on both sides of them.
+          </p>
+        )}
       </div>
     </div>
   );

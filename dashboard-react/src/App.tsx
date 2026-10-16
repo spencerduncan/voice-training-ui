@@ -1,14 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Recording, ReferenceVoice } from "./types";
 import {
   PITCH_ZONES,
+  F2_ZONES,
   LOUD_ZONES,
-  SD_ZONES,
   HNR_ZONES,
   JITTER_ZONES,
   WEIGHT_ZONES,
+  WEIGHT_DIRECTION,
   MELODY_ZONES,
   zoneOf,
+  goalOf,
   fmt,
 } from "./zones";
 import { StatCard } from "./components/StatCard";
@@ -18,6 +20,7 @@ import { ResonanceCard } from "./components/ResonanceCard";
 import { LineChart, type Point, type ChartBand } from "./components/LineChart";
 import { RecordingCard } from "./components/RecordingCard";
 import { CheatSheet } from "./components/CheatSheet";
+import { VoiceCareNote } from "./components/VoiceCareNote";
 import { RegisterSection } from "./components/RegisterSection";
 import {
   AnnotationsProvider,
@@ -75,6 +78,11 @@ export function App() {
   const active =
     (selectedId != null ? R.find((r) => r.id === selectedId) : null) ?? latest;
   const pz = active ? zoneOf(PITCH_ZONES, active.pitch.mean_hz) : null;
+  const pitchGoal = goalOf(PITCH_ZONES);
+  // Pitch alone doesn't settle how a voice reads — f0 and formants are read
+  // together (Hillenbrand & Clark 2009), so the pitch note is conditioned on
+  // where F2 sits before it ever says "reads feminine".
+  const f2z = active ? zoneOf(F2_ZONES, active.formants.f2_hz) : null;
   const isLatest = active && latest && active.id === latest.id;
 
   const mk = (sel: (r: Recording) => number | null): Point[] =>
@@ -84,13 +92,13 @@ export function App() {
     <div className="wrap">
       <header className="hero">
         <h1>
-          <TulipIcon title="Voice Garden" /> Voice Garden
+          <TulipIcon /> Voice Garden
         </h1>
         <p>a cozy place to watch your voice bloom 🌱✨</p>
         {active && (
           <div className="latest-banner">
             🌸 <b>#{active.id}</b> &middot; {active.label} &middot;{" "}
-            <span style={{ color: "#9d8ba8" }}>{active.date}</span>
+            <span style={{ color: "#756384" }}>{active.date}</span>
           </div>
         )}
       </header>
@@ -145,13 +153,24 @@ export function App() {
                 onExpand={openModal}
                 sub={
                   <Note id="note.pitch">
-                    {pz ? (
+                    {!pz ? (
+                      ""
+                    ) : pz.name === "fem" && f2z?.name === "bright" ? (
                       <>
-                        you're in the <b>{pz.name}</b> zone — 165 Hz+ reads
-                        feminine to most ears 💕
+                        you're in the <b>fem</b> zone with bright resonance to
+                        match — that pairing is what ears actually go on 💕
+                      </>
+                    ) : pz.name === "fem" ? (
+                      <>
+                        you're in the <b>fem</b> zone — 165 Hz is the top of the
+                        in-between range, and resonance takes it from there 🌱
                       </>
                     ) : (
-                      ""
+                      <>
+                        you're in the <b>{pz.name}</b> zone — 165 Hz is where the
+                        in-between range tops out, and pitch &amp; resonance
+                        decide together from there 🌱
+                      </>
                     )}
                   </Note>
                 }
@@ -182,16 +201,14 @@ export function App() {
                   </Note>
                 }
               />
+              {/* Hz variability is informational only — no zones, no verdict.
+                  Hz SD rises with mean pitch, so it can't tell melody apart from
+                  simply speaking higher. See the note in zones.ts. */}
               <StatCard
                 title="Pitch variability"
                 value={active.pitch.sd_hz}
                 unit="Hz"
-                zones={SD_ZONES}
-                lo={0}
-                hi={60}
-                metricKey="sd"
-                onExpand={openModal}
-                sub="how much your melody moves · ~20–40 Hz is lively, natural speech"
+                sub="the same movement measured in Hz · this one grows as your pitch rises, so it's a number to watch, not a score"
               />
               <StatCard
                 title="Clarity (HNR)"
@@ -216,8 +233,8 @@ export function App() {
                 sub={
                   <>
                     lower = steadier · shimmer{" "}
-                    {fmt(active.voice_quality.shimmer_pct)}% (under ~3.8% is
-                    steady)
+                    {fmt(active.voice_quality.shimmer_pct)}% — tracked, not
+                    scored
                   </>
                 }
               />
@@ -233,10 +250,10 @@ export function App() {
                 sub={
                   <Note id="note.weight">
                     source spectral tilt (corrected H1*–A3*) — the <i>thickness</i>{" "}
-                    of the voice itself (separate from pitch & resonance) · lighter
-                    leans feminine. <b>Heads up:</b> weight is hard to pin to a
-                    gender across people (lots of overlap), so it's most useful as{" "}
-                    <b>your own change over time</b>, not a vs-others verdict.
+                    of the voice itself, separate from pitch &amp; resonance ·{" "}
+                    {WEIGHT_DIRECTION}. Read it as <b>your own trend</b>; the
+                    measure is still being validated, so it isn't compared with
+                    anyone else's voice.
                   </Note>
                 }
               />
@@ -253,7 +270,7 @@ export function App() {
                 · the "size" your voice sounds, separate from pitch
               </span>
             </h2>
-            <ResonanceCard r={active} onExpand={openModal} />
+            <ResonanceCard r={active} onExpand={openModal} references={references} />
           </section>
 
           <Region id="region.afterResonance" />
@@ -309,15 +326,18 @@ export function App() {
           )}
           <ChartCard
             h="Pitch (avg)"
-            cap="pink band = feminine zone (165 Hz+)"
+            cap={
+              pitchGoal
+                ? `shaded by zone · ${pitchGoal.name} band ${pitchGoal.from} Hz+`
+                : "shaded by zone"
+            }
             color="#e07ab0"
             data={mk((r) => r.pitch.mean_hz)}
-            band={[165, 260]}
-            bandColor="#ffb6d5"
+            bands={PITCH_ZONES}
           />
           <ChartCard
             h="In-register melody"
-            cap="true expressiveness, crashes removed (st)"
+            cap="pitch movement in semitones, above-floor time only"
             color="#9b7ad0"
             data={mk((r) => r.register?.in_register_semitones_sd ?? null)}
             bands={MELODY_ZONES}
@@ -335,13 +355,12 @@ export function App() {
             cap="brightness / vocal-tract size cue"
             color="#d99a4e"
             data={mk((r) => r.formants.f2_hz)}
-            band={[1850, 2400]}
-            bandColor="#c9b6ff"
+            bands={F2_ZONES}
           />
           <ChartCard
             h="Weight"
-            cap="spectral tilt · lower = lighter / more feminine"
-            color="#cf7fb0"
+            cap={`spectral tilt · ${WEIGHT_DIRECTION} · your own trend`}
+            color="#8d7ba3" /* neutral lavender-grey: weight carries no pink/blue meaning */
             data={mk((r) => r.weight?.h1a3c_db ?? null)}
             bands={WEIGHT_ZONES}
           />
@@ -362,14 +381,12 @@ export function App() {
             </div>
           ) : (
             [...R].reverse().map((r) => (
-              <div
+              <SelectableRecording
                 key={r.id}
-                onClick={() => setSelectedId(r.id)}
-                style={{ cursor: "pointer" }}
-                title="click to view this take above"
-              >
-                <RecordingCard r={r} />
-              </div>
+                r={r}
+                current={r.id === active?.id}
+                onSelect={() => setSelectedId(r.id)}
+              />
             ))
           )}
         </div>
@@ -380,8 +397,10 @@ export function App() {
         <h2 className="section-title">
           <BulbIcon /> What do these mean?
         </h2>
-        <CheatSheet />
+        <CheatSheet references={references} />
       </section>
+
+      <VoiceCareNote />
 
       <footer>
         made with 🩷 &middot; numbers are a compass, not a judge &middot; your ears
@@ -398,6 +417,46 @@ export function App() {
           onClose={() => setModal(null)}
         />
       )}
+    </div>
+  );
+}
+
+// Wrapper that makes an "All recordings" card click-to-select. The keyboard /
+// screen-reader path is the real <button> on the card's number + label (see
+// RecordingCard); this wrapper only adds a bigger mouse target, so it carries
+// no role or tabindex and never nests one control inside another. The card
+// contains a whole WaveformPlayer (play button, seekable waveform, volume
+// slider, download link), so any press that starts inside the player is left
+// alone; otherwise scrubbing take #2 would switch the dashboard onto take #2.
+function SelectableRecording({
+  r,
+  current,
+  onSelect,
+}: {
+  r: Recording;
+  current: boolean;
+  onSelect: () => void;
+}) {
+  // a drag on the volume slider or the waveform can release elsewhere and still
+  // land a click on this wrapper, so remember where the press actually began
+  // (the select button handles its own clicks, so skip those here too)
+  const startedInPlayer = useRef(false);
+  const inPlayer = (t: EventTarget | null) =>
+    t instanceof Element && t.closest(".player, .rec-pick") != null;
+
+  return (
+    <div
+      className="rec-select"
+      title="click to view this take above"
+      onPointerDownCapture={(e) => {
+        startedInPlayer.current = inPlayer(e.target);
+      }}
+      onClick={(e) => {
+        if (startedInPlayer.current || inPlayer(e.target)) return;
+        onSelect();
+      }}
+    >
+      <RecordingCard r={r} current={current} onSelect={onSelect} />
     </div>
   );
 }

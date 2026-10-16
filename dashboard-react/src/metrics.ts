@@ -7,10 +7,10 @@ import {
   type Zone,
   PITCH_ZONES,
   LOUD_ZONES,
-  SD_ZONES,
   HNR_ZONES,
   JITTER_ZONES,
   WEIGHT_ZONES,
+  WEIGHT_DIRECTION,
   F2_ZONES,
   F3_ZONES,
 } from "./zones";
@@ -18,7 +18,6 @@ import {
 export type MetricKey =
   | "pitch"
   | "loudness"
-  | "sd"
   | "hnr"
   | "jitter"
   | "weight"
@@ -37,7 +36,8 @@ export interface MetricDef {
   // value for a web reference voice (null if that metric isn't measured)
   ref: (v: ReferenceVoice) => number | null | undefined;
   // whether reference (real men's/women's) ticks are meaningful here.
-  // gendered metrics (pitch, weight) → show refs; skill/non-gendered → her only.
+  // gendered metrics (pitch, F2, F3) → show refs; skill/non-gendered → her
+  // only. Weight is her own trend only until the measure is validated.
   showRefs: boolean;
   // one-line framing shown in the modal header
   blurb: string;
@@ -54,7 +54,7 @@ export const METRICS: Record<MetricKey, MetricDef> = {
     take: (r) => r.pitch.mean_hz,
     ref: (v) => v.pitch.mean_hz,
     showRefs: true,
-    blurb: "where you sit vs. real men's & women's voices · 165 Hz+ reads feminine",
+    blurb: "where you sit vs. real men's & women's voices · 165 Hz is the top of the in-between range, not a finish line",
   },
   loudness: {
     key: "loudness",
@@ -67,18 +67,6 @@ export const METRICS: Record<MetricKey, MetricDef> = {
     ref: (v) => v.intensity.mean_db,
     showRefs: false,
     blurb: "louder = more present · this one isn't gendered, just your takes here",
-  },
-  sd: {
-    key: "sd",
-    title: "Pitch variability",
-    unit: "Hz",
-    zones: SD_ZONES,
-    lo: 0,
-    hi: 60,
-    take: (r) => r.pitch.sd_hz,
-    ref: (v) => v.pitch.sd_hz,
-    showRefs: false,
-    blurb: "how much your melody moves · ~20–40 Hz is lively, natural speech",
   },
   hnr: {
     key: "hnr",
@@ -113,8 +101,8 @@ export const METRICS: Record<MetricKey, MetricDef> = {
     hi: 20,
     take: (r) => r.weight?.h1a3c_db ?? null,
     ref: (v) => v.weight.h1a3c_db,
-    showRefs: true,
-    blurb: "source spectral tilt (corrected H1*–A3*) · lighter leans feminine — but weight doesn't gender-separate reliably, so watch your OWN change over time",
+    showRefs: false,
+    blurb: `source spectral tilt (corrected H1*–A3*) · ${WEIGHT_DIRECTION} · read it as your own trend; the measure is still being validated, so no reference voices here`,
   },
   f2: {
     key: "f2",
@@ -126,7 +114,7 @@ export const METRICS: Record<MetricKey, MetricDef> = {
     take: (r) => r.formants.f2_hz,
     ref: (v) => v.formants?.f2_hz,
     showRefs: true,
-    blurb: "main brightness cue · median over vowel nuclei · higher = smaller, brighter tract (reads feminine)",
+    blurb: "main brightness cue · median over vowel nuclei · higher = a brighter, smaller-sounding space · real voices land on both sides of these bands",
   },
   f3: {
     key: "f3",

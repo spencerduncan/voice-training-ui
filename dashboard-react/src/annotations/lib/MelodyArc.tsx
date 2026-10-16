@@ -5,15 +5,17 @@ import { FEM, GROW, MASC } from "../../zones";
 // livelier?") is a trend, not a single number — so this plots it over time.
 //
 // Two series per take:
-//   • TRUE in-register melody (solid pink line + dots) — the honest tune.
-//   • RAW semitone SD (faint dashed grey) — inflated by register crashes.
-// The GAP between them is the "mirage": when raw rises but true stays flat, the
-// extra "variation" is crashes diving out of register, not real melody. An
-// optional dashed target line marks the lively goal (e.g. her best take's melody).
+//   • In-register melody (solid pink line + dots) — semitone SD over the
+//     frames above the register floor.
+//   • All-voiced semitone SD (faint dashed grey) — the same, including the dips
+//     below the floor, so it usually reads wider.
+// The GAP between them mostly tracks how much time went below the floor; it is
+// not by itself a verdict on the melody. An optional dashed target line marks
+// a goal (e.g. her best take's melody).
 //
 // Color note: this is a non-gendered SKILL trend (flat → lively), so pink = the
-// honest melody we want up, grey = the raw/mirage line. Blue (MASC) is used ONLY
-// for the small "← mirage / crashes" gap label, because that gap literally is
+// in-register melody, grey = the all-voiced line. Blue (MASC) is used ONLY
+// for the small "dips below floor" gap label, because that gap literally is
 // pitch falling toward masculine register. That's the sanctioned meaning of blue.
 export interface MelodyPoint {
   /** take id / label for the x-axis tick (e.g. "1".."5") */
@@ -92,7 +94,7 @@ export function MelodyArc({
           <g key={`gap${i}`}>
             <line x1={x(i)} x2={x(i)} y1={yr} y2={yt} stroke={MASC} strokeWidth={9} opacity={0.4} strokeLinecap="round" />
             <text x={x(i) - 12} y={(yr + yt) / 2 + 3} fontSize="10" fill="#5e7fb8" textAnchor="end">
-              mirage
+              dips below floor
             </text>
           </g>
         );
@@ -102,7 +104,7 @@ export function MelodyArc({
       <path d={toPath(rawPts)} fill="none" stroke={GROW} strokeWidth={2} strokeDasharray="4 4" opacity={0.85} />
       {rawPts.map((p, i) => p && (
         <circle key={`r${i}`} cx={p[0]} cy={p[1]} r={3} fill={GROW} stroke="#fff" strokeWidth={1}>
-          <title>take {points[i].label}: raw swing {points[i].rawSt} st (inflated by crashes)</title>
+          <title>take {points[i].label}: raw swing {points[i].rawSt} st (all voiced time, incl. dips below the floor)</title>
         </circle>
       ))}
 
@@ -111,19 +113,19 @@ export function MelodyArc({
       {truePts.map((p, i) => p && (
         <circle key={`t${i}`} cx={p[0]} cy={p[1]} r={points[i].current ? 7 : 5}
           fill={FEM} stroke={points[i].current ? "#c75c93" : "#fff"} strokeWidth={points[i].current ? 2.5 : 1.5}>
-          <title>take {points[i].label}: true melody {points[i].trueSt} st{points[i].current ? " (this take)" : ""}</title>
+          <title>take {points[i].label}: in-register melody {points[i].trueSt} st{points[i].current ? " (this take)" : ""}</title>
         </circle>
       ))}
 
       {/* x labels */}
       {points.map((p, i) => (
         <text key={`x${i}`} x={x(i)} y={H - 14} fontSize="11" textAnchor="middle"
-          fill={p.current ? "#c75c93" : "#9d8ba8"} fontWeight={p.current ? 700 : 400}>
+          fill={p.current ? "#c75c93" : "#756384"} fontWeight={p.current ? 700 : 400}>
           #{p.label}
         </text>
       ))}
-      <text x={pad.l} y={H - 2} fontSize="10" fill="#9d8ba8">
-        pink = true in-register melody · grey dashed = raw swing (inflated by crashes)
+      <text x={pad.l} y={H - 2} fontSize="10" fill="#756384">
+        pink = in-register melody · grey dashed = all voiced time (counts the dips below the floor)
       </text>
     </svg>
   );

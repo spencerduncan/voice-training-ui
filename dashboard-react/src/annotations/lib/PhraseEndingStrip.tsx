@@ -68,7 +68,7 @@ export function PhraseEndingStrip({ detail }: { detail: RecordingDetail }) {
           </circle>
         </g>
       ))}
-      <text x={pad.l} y={H - 6} fontSize="10" fill="#9d8ba8">
+      <text x={pad.l} y={H - 6} fontSize="10" fill="#756384">
         each dot = a phrase ending · blue = fell out of register
       </text>
     </svg>

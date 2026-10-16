@@ -1,12 +1,14 @@
 # /// script
-# requires-python = ">=3.11"
+# requires-python = ">=3.13"
 # dependencies = ["praat-parselmouth", "numpy", "huggingface_hub", "pyarrow"]
 # ///
 """Build / refresh the reference-voice set for Voice Garden 🌸
 
-Downloads a set of real male & female reference speakers (VCTK American accent +
-CMU ARCTIC US), measures each with the project's OWN `analyze()` (so the numbers
-are directly comparable to the user's takes), and writes:
+Downloads a set of real male & female reference speakers (VCTK American accent —
+one consistent corpus; the CMU ARCTIC US speakers are wired up but DISABLED, see
+the ARCTIC registry below for why), measures each with the project's OWN
+`analyze()` (so the numbers are directly comparable to the user's takes), and
+writes:
   - dashboard-react/public/reference.json   (one averaged entry per speaker)
   - dashboard-react/public/reference-audio/<key>.mp3  (that speaker's clips,
     concatenated with short gaps, for the in-modal "click to hear" previews)

@@ -21,10 +21,23 @@ weaknesses, always actionable and kind.
 
 ---
 
+## Voice care comes first
+
+If the `--note`, the user's message, or anything they say mentions **strain, pain, a tight
+or tickly throat, hoarseness, losing the top of the range, or vocal tiredness**, lead with
+rest: tell them kindly to stop for the day, rest and hydrate, and keep the next session
+short and easy. **Do not prescribe more effort** for that take (no "push higher", "louder",
+or extra drills); the insight can still say what the numbers show, framed for next time.
+If hoarseness or a missing top end has lasted **more than 4 weeks**, suggest a
+speech-language pathologist (ideally one who works with trans clients) or a laryngologist,
+as a check-in, not a verdict. This mirrors the always-visible voice-care note in the
+dashboard (`src/components/VoiceCareNote.tsx`).
+
 ## Step 1 — Run the standard analyzer
 
+From the repo root (wherever this checkout lives):
+
 ```fish
-cd /Users/rachel/Downloads/voice-training
 uv run analyze.py "<path to audio>" --label "<what she was practicing>" [--note "..."] [--register-floor 130]
 ```
 
@@ -39,8 +52,8 @@ uv run analyze.py "<path to audio>" --label "<what she was practicing>" [--note 
 
 Read `dashboard-react/public/analysis/<id>.json` and the new entry in `recordings.json`.
 Shapes are in `dashboard-react/src/types.ts`:
-- `Recording.register`: `in_register_pct`, `semitones_sd` (raw, inflated), `in_register_semitones_sd`
-  (honest melody), `onset_sub_pct`/`mid_sub_pct`/`offset_sub_pct`, `phrases_landed_pct`,
+- `Recording.register`: `in_register_pct`, `semitones_sd` (all voiced frames), `in_register_semitones_sd`
+  (frames above the floor only — fragile when little time was in register), `onset_sub_pct`/`mid_sub_pct`/`offset_sub_pct`, `phrases_landed_pct`,
   `n_phrases`, `floor_hz`.
 - `RecordingDetail`: `frames {t[],hz[]}` (hz null when unvoiced), `phrases[]`
   (`start/end/onset_hz/offset_hz/min_hz/started_in_register/ended_in_register/sub_register_pct`).
@@ -51,11 +64,19 @@ Shapes are in `dashboard-react/src/types.ts`:
 
 Find the **1–3 most important, most actionable** things — beat generic advice like
 "add melody." Reason like a phonetician. Check, roughly by leverage:
-- **Register & phrase boundaries.** Is "lively prosody" real, or register crashes? Compare
-  `semitones_sd` vs `in_register_semitones_sd`. Where do drops cluster (onset/mid/offset)?
+- **Register & phrase boundaries.** A big gap between `semitones_sd` and
+  `in_register_semitones_sd` mostly means time below the floor, not extra melody — say so
+  kindly rather than calling it expression. Where do drops cluster (onset/mid/offset)?
   Which phrases fell out (`ended_in_register === false`)? Trailing-off endings are very clockable.
-- **Pitch.** Mean vs the feminine threshold (~165 Hz). In-register melody flat (< ~2 st) or healthy (~3–4 st)?
+- **Pitch.** Mean vs the ~165 Hz **inflection point** — the top of the gender-ambiguous range,
+  not a threshold a voice crosses. Read it *next to F2*: f0 and formants are heard together
+  (Hillenbrand & Clark 2009), so only call a take "reads feminine" when both are bright.
+  In-register melody flat (< ~2 st) or healthy (~3–4 st)?
 - **Resonance.** F2/F3 deeper/neutral/bright (`zones.ts`). Often the biggest lever after pitch.
+- **Weight** (`weight.h1a3c_db`). Her own trend only: compare with her earlier takes, never
+  with other voices, and don't call it feminine or masculine. The measure is still being
+  validated (direction wording lives in `WEIGHT_DIRECTION` in `zones.ts`), so don't make it
+  the lead finding.
 - **Voice quality.** Excess breathiness (low HNR) or strain (high jitter/shimmer).
 - **Her stated `--label` goal** — speak to it directly.
 
@@ -71,7 +92,7 @@ everything else falls back to shared defaults (this is what keeps it DRY).
 Each slot is `(ctx) => ReactNode` where `ctx = { recording, detail }` (`detail` may be null
 while loading — guard it). Slot kinds:
 - **Override slots** (`note.*`) replace a woven-in default note. Available: `note.pitch`,
-  `note.loudness`, `note.resonance`, `note.register`.
+  `note.loudness`, `note.weight`, `note.resonance`, `note.register`.
 - **Insertion slots** (`region.*`) drop in freeform content; empty by default. Available:
   `region.top`, `region.afterLatest`, `region.afterResonance`, `region.afterRegister`,
   `region.insights` (put the main insight here), `region.bottom`.
@@ -83,7 +104,7 @@ Reuse the library in **`src/annotations/lib/`** (import from `../lib`): `Insight
 (shell: title/subtitle/badges), `Drill` (a "try this" box), `PhraseEndingStrip` (per-phrase
 ending dots vs the floor). **Grow the library:** if your finding needs a new viz that could
 be reused, build it in `lib/`, export from `lib/index.ts`, then use it — don't bury reusable
-viz in one entry. `entries/001.tsx` is the reference example. Helpers (`fmt`, colors, zones)
+viz in one entry. `entries/_example.tsx` is the reference example (copy it to start). Helpers (`fmt`, colors, zones)
 are in `../../zones`.
 
 ### Conventions (non-negotiable)
@@ -97,7 +118,7 @@ are in `../../zones`.
 ## Step 5 — Verify
 
 ```fish
-cd /Users/rachel/Downloads/voice-training/dashboard-react
+cd dashboard-react     # from the repo root
 npm run build          # must pass (tsc -b && vite build)
 ```
 `npm run dev` (http://localhost:5173/) hot-reloads new entries and re-fetches data on refresh.

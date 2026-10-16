@@ -38,6 +38,12 @@ Refresh the dashboard. Then author that take's insight by following the
 `analyze-voice` skill — copy `dashboard-react/src/annotations/entries/_example.tsx`
 to `00N.tsx` (matching the new recording's id) and fill in the slots.
 
+**Takes, audio, analysis JSON and annotation entries are local and never committed.**
+`recordings.json` (both copies), `public/audio/`, `public/analysis/` and
+`src/annotations/entries/<NNN>.tsx` are gitignored (only `_example.tsx` and the `.gitkeep`s
+are tracked). The two `recordings.json` starters are still tracked as `[]`, so stage files by
+name — never `git add -A` — when committing code changes.
+
 **Ownership note:** this guide and the skill were written for the original user
 ("Rachel"). Treat "the user" as whoever you're working with now — keep the same
 warm, *compass-not-judge* tone and all the conventions below.
@@ -57,9 +63,11 @@ goal is just as important as the metrics:
   never a verdict. The footer literally says so. Honor that everywhere.
 - **Honest but kind.** Don't inflate progress (if "melody" is really register crashes,
   say so) — but always pair a weakness with a concrete, doable next step, and end warm.
-- **Woven-in, personal encouragement.** The little notes ("you're in the *fem* zone —
-  165 Hz+ reads feminine to most ears 💕") are a core feature, not decoration. Personalize
-  them per recording where it helps (see the annotation slots below).
+- **Woven-in, personal encouragement.** The little notes ("you're in the *fem* zone with
+  bright resonance to match — that pairing is what ears actually go on 💕") are a core
+  feature, not decoration. Personalize them per recording where it helps (see the
+  annotation slots below). Keep them **conditional** where the science is conditional —
+  the pitch note only says "reads feminine" when F2 is bright too (see Pitch below).
 - Emoji in moderation (🌸🎀🎯💕🌱). Rounded font (`ui-rounded`). Keep it soft.
 
 ### Color convention — STRICT
@@ -177,8 +185,9 @@ voice shape.
 
 ## Click-to-expand reference modal (where you sit vs. real voices)
 
-Every **bar-backed** stat card (Pitch, Loudness, Pitch variability, Clarity/HNR,
-Steadiness/jitter, Weight) **and** the two resonance gauges (F2, F3) are **clickable**. A
+Every **bar-backed** stat card (Pitch, Loudness, Clarity/HNR, Steadiness/jitter, Weight)
+**and** the two resonance gauges (F2, F3) are **clickable** (Pitch variability in Hz is
+informational only — no zones, not clickable — since Hz SD grows with mean pitch). A
 click animates a modal up out of the card showing that metric's full scale with **ticks for
 many audio samples as reference points** — instantly answering "where do I sit?".
 
@@ -190,8 +199,8 @@ many audio samples as reference points** — instantly answering "where do I sit
   keeps each anchored. The currently-selected take is highlighted pink + enlarged.
 - **Web reference voices** as smaller **pink (female `FEM`) / blue (male `MASC`)** ticks below
   the bar — STRICT color rule. Shown only on **gendered** metrics (`showRefs: true` →
-  Pitch, Weight, F2, F3); non-gendered ones (Loudness, variability, HNR, jitter) show her
-  takes only, with a legend note.
+  Pitch, F2, F3); non-gendered ones (Loudness, HNR, jitter) and Weight (own trend only, still
+  being validated) show her takes only, with a legend note.
 - A **legend** + the lo/hi axis. The scale auto-stretches lo/hi so every value fits.
 
 **Click a dot or a reference tick → a `WaveformPlayer` opens below the scale** and plays that
@@ -226,21 +235,22 @@ the reference ticks above.
   intensity{mean_db}, voice_quality{hnr_db,jitter_pct}, weight{h1a3c_db} }`. Each speaker is the
   **average of ~3 utterances**; `source` cites the real VCTK speaker id + DataShare. Fetched at
   runtime (cache-busted) like `recordings.json`; the app **degrades gracefully** to `[]` if missing.
-- **`public/reference-audio/vctk_<g><id>.mp3`** — short single-sentence previews for the in-modal
-  player. VCTK utterances are already short, so no intro-trimming is needed. Mono, 96 kbps.
-- **What the data says:** pitch separates the sexes cleanly (F≈210 Hz vs M≈108 Hz); **weight
-  (corrected H1\*–A3\*) separates them ~4 dB** (F mean 8.55 vs M mean 12.51 dB; smaller =
-  lighter/feminine) — a real but imperfect cue (some overlap remains), and a big improvement on
-  the old alpha ratio's ~1 dB. See `WEIGHT_ZONES` in `zones.ts`.
+- **`public/reference-audio/vctk_<g><id>.mp3`** — previews for the in-modal player: each
+  speaker's ~3 measured clips **concatenated** with 0.35 s gaps (≈10–18 s), mono, 96 kbps.
+- **What the data says:** pitch separates the sexes cleanly (F≈210 Hz vs M≈108 Hz). Weight
+  (corrected H1\*–A3\*) means differ (F 9.06 vs M 12.51 dB) but with only 4 men, a direction
+  opposite to the published literature, and a measure the review found unstable, so the app
+  does **not** use it as a gender cue (see Weight below). `reference.json` still stores it.
 
-**How to (re)generate** (done ad hoc with `uv run`; no committed generator):
-1. Stream the VCTK parquet mirror, filter `accent == American`, save ~3 clips/speaker to
-   `/tmp/vctk-ref/audio/`. The American speakers (p294+) sit in the **late shards**, so download
-   those directly with `huggingface_hub` + `pyarrow` and read the `audio` struct's `bytes`
-   (streaming from the start is too slow — shards are speaker-ordered).
-2. For each speaker, run `from analyze import analyze, to_wav_mono` on each clip, average, and
-   write `public/reference.json`; make previews with `ffmpeg -i <clip> -ac 1 -t 8 -b:a 96k`.
-3. Re-derive `WEIGHT_ZONES` from the new male/female `h1a3c_db` means.
+**How to (re)generate:** `uv run scripts/build_reference_set.py` — the committed generator
+and the one place the reference pipeline lives (edit it there, not ad hoc).
+1. It downloads the VCTK American speakers listed in its registry. They (p294+) sit in the
+   **late parquet shards**, so it fetches those directly with `huggingface_hub` + `pyarrow` and
+   reads the `audio` struct's `bytes`; clips are cached in `.refcache/` (gitignored), so re-runs
+   only fetch what's missing.
+2. For each speaker it runs the project's own `analyze()` on ~3 clips, averages them, writes
+   `public/reference.json`, and concatenates those clips into the preview mp3.
+3. It prints per-gender means + suggested thresholds; re-derive the bands in `zones.ts` from them.
 - To **add a metric to the comparison**: extend the per-speaker output + the `ReferenceVoice`
   type, regenerate, then add a `METRICS` entry with `ref:`.
 
@@ -248,7 +258,18 @@ the reference ticks above.
 
 ## What gets measured & why (voice fem)
 
-- **Pitch (F0)** — biggest cue. ~165 Hz+ average reads feminine to most ears.
+- **Pitch (F0)** — the biggest *single* cue, but not sufficient on its own. **Never present
+  165 Hz as an unconditional verdict.** Hillenbrand & Clark (2009, *Atten Percept Psychophys*
+  71(5):1150–1166) resynthesized voices and found that shifting f0 **or** formants alone was
+  "usually ineffective" at changing perceived sex, while shifting both worked ~82% of the time
+  — "though even together these cues are not entirely effective." Gelfer & Bennett (2013) found
+  male identification declines "at 165 Hz and above" and that in the 145–165 Hz band "vowel
+  formants appeared to be important to perception of gender." So 165 Hz is a real **inflection
+  point** — the top of the gender-ambiguous range, where resonance starts doing the deciding —
+  not a threshold a voice crosses. The `note.pitch` slot is therefore **conditioned on F2**: it
+  only says "reads feminine" when F2 is in its bright band too. Keep it that way.
+  Don't hard-code single reference speakers as anecdotes in the UI or docs: their means can be
+  measurement artefacts (p294's 164 Hz, for one, is dragged down by phrase-final creak).
 - **Resonance (formants F1/F2/F3)** — the "vocal-tract size / brightness" cue; what makes
   a voice read light independent of pitch. Often the biggest lever after pitch. F1 is
   vowel-driven, not a reliable gender cue alone. **Now vowel-targeted** (in
@@ -256,34 +277,45 @@ the reference ticks above.
   frame (which folds in consonants/glides/mistracks and barely separated the sexes — old F2
   women 1639 vs men 1566), we take the **median over vowel nuclei** — frames that are voiced
   AND loud (within 10 dB of peak) AND have a plausible vowel F1 (~250–1000 Hz) AND are
-  formant-stable. On VCTK this separates F2 cleanly (women ~1434 vs men ~1281, no overlap in
-  sample) and F3 better but still overlapping (~2708 vs ~2523). See `F2_ZONES`/`F3_ZONES`.
-- **Weight (vocal heaviness via source spectral tilt)** — one of the *big three* fem cues,
-  alongside pitch and resonance. It's the voice **source** (the vocal folds themselves) vs.
+  formant-stable. On VCTK this separates F2 much better than the old frame-average (women
+  ~1450 vs men ~1281) though the ranges still **overlap at the edges** (female min 1280 vs
+  male max 1325), and F3 similarly (~2742 vs ~2523). See `F2_ZONES`/`F3_ZONES`.
+- **Weight (vocal heaviness via source spectral tilt)** — a candidate cue alongside pitch and
+  resonance, **shown as her own trend only** until it's validated. It's the voice **source** (the vocal folds themselves) vs.
   resonance, which is the **filter** (the vocal tract). Measured as **corrected H1\*–A3\***
   (`h1a3c_db`, the Iseli–Alwan 2007 source-tilt measure as used in VoiceSauce, in
   `analyze.py`'s `spectral_weight()`): on **voiced frames only**, the amplitude of the harmonic
   near F0 (H1) minus the harmonic near F3 (A3), each **formant-corrected** (each of F1–F3
   modeled as a pole + bandwidth, its boost subtracted) so it isolates the *source* from the
   *filter*. The formant correction is the whole point — uncorrected H1–A3 just re-measures
-  resonance, which was the old alpha ratio's bug. **Direction (verified on VCTK): smaller =
-  lighter & airier (feminine), larger = heavier/pressed (masculine)** — the OPPOSITE of the
-  old alpha ratio. It's a difference of two harmonic amplitudes, so it's largely
-  **gain-independent** → comparable across recordings, unlike absolute loudness. Zones are
-  reference-grounded against real male/female voices (see `WEIGHT_ZONES` in `zones.ts`), where
-  it separates the sexes by ~4 dB (F mean 8.55 vs M mean 12.51) — much better than the old
-  alpha's ~1 dB. `h1a3_db` (uncorrected H1–A3) and `tilt_db_khz` (LTAS slope) are stored too
-  as cheap secondaries.
+  resonance, which was the old alpha ratio's bug. It's a difference of two harmonic amplitudes,
+  so it's largely **gain-independent** → comparable across recordings, unlike absolute loudness.
+  **Not validated yet:** the Oct 2026 review found creak frames and formant mistracking swing a
+  take by several dB, and the direction is unsettled (arithmetically a steeper roll-off gives a
+  *larger* value, yet the reference women average *lower*). So the dashboard treats it as
+  **her own trend only**: `WEIGHT_ZONES` use neutral GROW/BUTTER with direction names
+  (lighter / mid / heavier), no goal band, **no MASC blue or FEM pink**, and `showRefs: false`
+  (no male/female ticks). Every UI sentence about direction reads `WEIGHT_DIRECTION` in
+  `zones.ts` ("lower = lighter and airier, higher = heavier"), so a settled sign changes in
+  one place. Don't call weight feminine/masculine in annotations either. `h1a3_db`
+  (uncorrected H1–A3) and `tilt_db_khz` (LTAS slope) are stored too as cheap secondaries.
 - **Register & phrasing** — the deep layer. Pitch isn't just an average; it's a *contour*.
   We detect where the voice **crashes out of register** (below a floor, default 130 Hz,
   back toward chest voice) and where those crashes cluster within a phrase. Trailing-off
-  phrase **endings** are the classic, high-salience failure. We also report **true
-  in-register melody** (semitone SD with crashes removed) vs. the raw (inflated) number —
-  "lively prosody" is often a mirage of register breaks, not real expression.
+  phrase **endings** are the classic, high-salience failure. We also report **melody in
+  semitones** two ways: over the frames above the floor (`in_register_semitones_sd`, shown in
+  the Register section — never promoted to a headline card) and over all voiced frames
+  (`semitones_sd`). Dips below the floor usually widen the second, so a big gap mostly says how
+  much time went below the floor. The in-register number is a truncated SD with no minimum-frame
+  guard, so treat it as fragile when little time was in register.
 - **Loudness, HNR (clarity/breathiness), jitter/shimmer (steadiness)** — supporting cues.
 
-Caveat to remember: jitter/shimmer/HNR norms come from sustained vowels, so on a full
-passage they read "worse" than textbook — use them as *her own trend*, not pass/fail.
+Caveat to remember: the textbook jitter/shimmer/HNR norms are sustained-vowel clinical
+screens that no read passage reaches, so the app doesn't use them. `HNR_ZONES` and
+`JITTER_ZONES` in `zones.ts` are **reference-grounded on the VCTK read passages** (HNR breathy
+<9 · typical 9–14 · clear 14 dB+; jitter steady <1.5 · typical 1.5–2.5 · unsteady 2.5 %+), and
+shimmer has no trustworthy passage-level threshold, so it's shown without a zone. They're skill
+cues, not gender cues — still read them as *her own trend*, not pass/fail.
 
 ---
 
@@ -297,7 +329,7 @@ analyze.py  ──(uv run)──►  recordings.json (root, source of truth)
    ▼
 dashboard-react/  (Vite + React + TS)  ── fetches public/* at runtime ──► browser
    ▲
-VCTK American refs (/tmp/vctk-ref) ──(uv run + ffmpeg)──► public/reference.json
+scripts/build_reference_set.py ──(uv run + ffmpeg)──►    public/reference.json
    (measured with the SAME analyze())                    public/reference-audio/vctk_*.mp3
                                                           (for the comparison modal)
 ```
@@ -324,7 +356,7 @@ Two slot kinds (`src/annotations/AnnotationsProvider.tsx`):
 - **`<Region id>`** — freeform insertion point; renders nothing unless a recording fills it
   (the insights region passes an `empty` placeholder).
 
-Available slots today: notes `note.pitch`, `note.loudness`, `note.resonance`,
+Available slots today: notes `note.pitch`, `note.loudness`, `note.weight`, `note.resonance`,
 `note.register`; regions `region.top`, `region.afterLatest`, `region.afterResonance`,
 `region.afterRegister`, `region.insights`, `region.bottom`. Add more `<Note>`/`<Region>`
 in the layout if a take needs to speak somewhere new.
@@ -332,7 +364,7 @@ in the layout if a take needs to speak somewhere new.
 Reusable viz/components live in `src/annotations/lib/` (`InsightCard`, `Drill`,
 `PhraseEndingStrip`, …). **Grow this library**: if an insight needs a chart that could be
 reused, add it to `lib/` and export it, then import from the entry — don't bury reusable
-viz inside one entry. `entries/001.tsx` is the reference example.
+viz inside one entry. `entries/_example.tsx` is the reference example (the template).
 
 ### Recording selector
 `App.tsx` tracks an `active` recording (defaults to latest). A pill switcher (shown with
@@ -362,9 +394,8 @@ the top sections + which annotation file loads.
     **`MetricModal.tsx`** (the reference-comparison modal — see its section above).
   - `src/annotations/` — `AnnotationsProvider` (context + `Note`/`Region`), `lib/`
     (reusable), `entries/` (per-recording, authored by you).
-- `/tmp/vctk-ref/audio/` — **NOT in the repo.** The downloaded VCTK American clips used to
-  generate `public/reference.json` + `reference-audio/` previews. See the "Reference voices"
-  section above for how to regenerate.
+- `scripts/build_reference_set.py` — the reference-set generator (see "Reference voices"
+  above). Its downloaded VCTK clips are cached in `.refcache/`, which is gitignored.
 - `.claude/skills/analyze-voice/` — the workflow skill.
 
 ---

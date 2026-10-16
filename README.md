@@ -16,6 +16,20 @@ Open your coding agent of choice and ask it to read CLAUDE.md. It will give you 
 
 If you don't know what a coding agent is or how to do this, DM me. I will see about packaging it for you in an easier format, but it will be less useful as I will have to remove the AI features.
 
+## Your recordings stay on your machine 🌷
+
+`dashboard-react/public/audio/` and `dashboard-react/public/analysis/` ship **empty on purpose** — only a `.gitkeep` placeholder is in each. Those two folders and `recordings.json` are gitignored, so your takes and their measurements stay local and won't ride along if you commit or push this repo.
+
+**Takes, audio, analysis JSON and annotation entries are local and never committed** — that's `recordings.json` (both copies), `dashboard-react/public/audio/`, `dashboard-react/public/analysis/`, and the per-take insight files in `dashboard-react/src/annotations/entries/` (only `_example.tsx` is tracked).
+
+One caveat if you cloned rather than downloaded: `recordings.json` and its `dashboard-react/public/` mirror are tracked as empty `[]` starters, and git keeps following a file once it's tracked — gitignore only applies to files git isn't already watching. So the log of your takes (labels, notes, numbers — not the audio) can still land in a commit. If you'd rather git forgot those two files entirely, run this once:
+
+```
+git rm --cached recordings.json dashboard-react/public/recordings.json
+```
+
+That leaves both files exactly where they are on disk; it only tells git to stop watching them. Your audio and analysis files are ignored either way.
+
 ## License
 
 All code and content I wrote — `analyze.py`, the React dashboard, the Claude Code skill, and the docs — is licensed under the **MIT License** (see `LICENSE`).
@@ -26,6 +40,7 @@ Additionally, in jurisdictions where statements of this kind are legal, I dedica
 
 ## Credits & third-party assets
 
-- **Reference voices** — the preview clips in `dashboard-react/public/reference-audio/` and the measured values in `reference.json` are derived from the **VCTK Corpus** (CSTR, University of Edinburgh — Veaux, Yamagishi & MacDonald), licensed **CC BY 4.0**. The clips were trimmed and transcoded. These files remain under **CC BY 4.0**. <https://datashare.ed.ac.uk/handle/10283/3443> · <https://creativecommons.org/licenses/by/4.0/>
+- **Reference voices** — the preview clips in `dashboard-react/public/reference-audio/` and the measured values in `reference.json` are derived from the **VCTK Corpus** (CSTR, University of Edinburgh — Veaux, Yamagishi & MacDonald), licensed **CC BY 4.0**. Each preview concatenates ~3 utterances per speaker and is transcoded to mono mp3. These files remain under **CC BY 4.0**. <https://datashare.ed.ac.uk/handle/10283/3443> · <https://creativecommons.org/licenses/by/4.0/>
+- **Quicksand** font (`dashboard-react/src/fonts/quicksand-latin.woff2`) — © 2011 The Quicksand Project Authors, licensed under the **SIL Open Font License 1.1** (see `dashboard-react/src/fonts/OFL.txt`).
 - **Praat** (Boersma & Weenink) and **parselmouth** (Jadoul, Thompson & de Boer), both **GPLv3**, power `analyze.py`.
 - Other dependencies (React, Vite, wavesurfer.js, NumPy, …) retain their own respective licenses.

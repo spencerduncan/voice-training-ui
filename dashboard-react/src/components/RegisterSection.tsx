@@ -28,6 +28,14 @@ export function RegisterSection() {
   ];
   const worst = [...positions].sort((a, b) => (b.v ?? 0) - (a.v ?? 0))[0];
 
+  // These three bars exist to be read against *each other*, so the tallest one
+  // sets the scale. (A fixed ×3 pinned anything at or above 33% to full height —
+  // 35 / 60 / 90% drew three identical bars, which is exactly the comparison
+  // this panel is for.) The floor stops a nearly-clean take from rendering a
+  // full-height bar over a percent or two.
+  const peak = Math.max(0, ...positions.map((p) => p.v ?? 0));
+  const scaleMax = Math.max(peak, 10);
+
   return (
     <div className="register">
       <p className="res-desc">
@@ -69,17 +77,25 @@ export function RegisterSection() {
           </div>
         </div>
 
+        {/* Both numbers, no "true" vs "inflated" framing: the in-register SD is
+            computed over the same frames minus the ones below the floor.
+            Dropping the low tail usually (not always) narrows the SD, so a big
+            gap mostly reflects how much time went below the floor (the card to
+            the left) rather than anything about the melody. It's also a
+            truncated SD with no minimum-frame guard, so it gets shaky when
+            little time was spent above the floor. */}
         <div className="stat">
           <div className="label">
-            <span>True melody</span>
+            <span>Melody in register</span>
           </div>
           <div className="value">
             {fmt(reg.in_register_semitones_sd)}
             <small> st</small>
           </div>
           <div className="sub">
-            in-register pitch variation. Raw looks like {fmt(reg.semitones_sd)} st, but the extra is
-            register crashes, not melody — this is the honest number.
+            pitch movement across the time you were above the floor. Over <i>all</i> voiced time
+            it's {fmt(reg.semitones_sd)} st — that one counts the dips too, so it usually reads
+            wider.
           </div>
         </div>
       </div>
@@ -96,7 +112,7 @@ export function RegisterSection() {
         <div className="posbars">
           {positions.map((p) => {
             const v = p.v ?? 0;
-            const h = Math.max(4, Math.min(100, v * 3));
+            const h = Math.max(4, Math.min(100, (v / scaleMax) * 100));
             return (
               <div className="posbar" key={p.key}>
                 <div className="posbar-track">

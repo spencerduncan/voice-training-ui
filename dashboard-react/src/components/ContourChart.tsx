@@ -105,7 +105,7 @@ export function ContourChart({ detail, femThreshold = 165 }: Props) {
 
       {/* y ticks */}
       {yTicks.map((v, k) => (
-        <text key={`y${k}`} x={pad.l - 6} y={y(v) + 3} fontSize="9" fill="#9d8ba8" textAnchor="end">
+        <text key={`y${k}`} x={pad.l - 6} y={y(v) + 3} fontSize="9" fill="#756384" textAnchor="end">
           {Math.round(v)}
         </text>
       ))}
@@ -141,10 +141,10 @@ export function ContourChart({ detail, femThreshold = 165 }: Props) {
           </title>
         </circle>
       ))}
-      <text x={pad.l} y={H - 6} fontSize="10" fill="#9d8ba8">
+      <text x={pad.l} y={H - 6} fontSize="10" fill="#756384">
         time →
       </text>
-      <text x={W - pad.r} y={H - 6} fontSize="10" fill="#9d8ba8" textAnchor="end">
+      <text x={W - pad.r} y={H - 6} fontSize="10" fill="#756384" textAnchor="end">
         ● dots = how each phrase landed
       </text>
     </svg>

@@ -1,3 +1,5 @@
+@import "./fonts/quicksand.css";
+
 :root {
   --pink: #ffb6d5;
   --pink-soft: #ffd9ea;
@@ -8,10 +10,18 @@
   --mint: #b8ecd8;
   --butter: #ffe9a8;
   --ink: #6b5876;
-  --ink-soft: #9d8ba8;
+  /* secondary text: 5.2:1 on --card, >=4.6:1 on --lav-bg, --pink-bg and the
+     player's hover tint (AA for the 12–13px explanatory copy that uses it).
+     Was #9d8ba8, ~3:1. */
+  --ink-soft: #756384;
   --card: #fffafd;
   --shadow: 0 8px 24px rgba(186, 142, 196, 0.18);
   --radius: 22px;
+  /* one focus indicator for every custom-styled clickable thing: a rose ring
+     that reads clearly on the pale cards without leaving the pastel palette.
+     Rose (not blue) — blue is reserved for masculine register. */
+  --focus-rose: #b06a96;
+  --focus-ring: 3px solid var(--focus-rose);
 }
 * {
   box-sizing: border-box;
@@ -145,7 +155,10 @@ section {
 .fgauge.is-clickable:focus-visible {
   background: var(--pink-bg);
   box-shadow: 0 4px 14px rgba(186, 142, 196, 0.16);
-  outline: none;
+}
+.fgauge.is-clickable:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
 }
 .fgauge-head {
   display: flex;
@@ -183,6 +196,25 @@ section {
   background: var(--pink-bg);
   border-radius: 12px;
   padding: 11px 13px;
+  color: #7a5a92;
+}
+/* Reference-set context. Deliberately styled like .res-f1 (a calm aside, never a
+   warning) but a touch larger, since it qualifies the verdict above it. No blue
+   anywhere — this is not a masculine-register readout. */
+.res-context {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  margin-top: 10px;
+  background: var(--lav-bg);
+  border-radius: 11px;
+  padding: 10px 12px;
+}
+.res-context b {
+  color: #7a5a92;
+}
+.res-context i {
+  font-style: normal;
   color: #7a5a92;
 }
 .res-f1 {
@@ -263,6 +295,37 @@ section {
   display: grid;
   grid-template-columns: 1fr;
   gap: 14px;
+}
+/* click-to-select wrapper around each recording card (a mouse convenience —
+   the keyboard path is the .rec-pick button on the card's number + label) */
+.rec-select {
+  cursor: pointer;
+  border-radius: var(--radius);
+}
+.rec-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+button.rec-pick {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 2px 6px 2px 2px;
+  margin: -2px -6px -2px -2px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+button.rec-pick:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+/* inside the player the cursor belongs to the player's own controls */
+.rec-select .player {
+  cursor: default;
 }
 .rec {
   background: var(--card);
@@ -513,6 +576,37 @@ a.legend-link {
   color: #b06a96;
 }
 
+/* ---- gentle voice-care aside (permanent, sits above the footer) ----
+   Soft lavender, same quiet register as .res-f1 / .gloss-note. Never red,
+   never blue (blue means masculine register only). Body text is --ink at
+   13.5px (5.7:1 on --lav-bg): a stop rule has to be easy to read. */
+.care-note {
+  margin-top: 34px;
+  background: var(--lav-bg);
+  border: 1.5px solid #e9e1ff;
+  border-radius: 18px;
+  padding: 14px 16px 15px;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.care-note h3 {
+  margin: 0 0 7px;
+  font-size: 15px;
+  color: #7a5a92;
+}
+.care-note ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 5px;
+}
+.care-note li {
+  line-height: 1.55;
+}
+.care-note b {
+  color: #7a5a92;
+}
+
 /* ---- recording switcher ---- */
 .picker {
   display: flex;
@@ -685,10 +779,11 @@ a.legend-link {
 .stat.is-clickable:focus-visible {
   transform: translateY(-3px);
   box-shadow: 0 14px 30px rgba(186, 142, 196, 0.28);
-  outline: none;
 }
 .stat.is-clickable:focus-visible {
   border-color: var(--pink);
+  outline: var(--focus-ring);
+  outline-offset: 3px;
 }
 
 /* corner magnify glyph — persistent (visible on touch, no hover needed) */
@@ -792,6 +887,13 @@ a.legend-link {
   padding: 26px 28px 22px;
   transform-origin: var(--ox, 50%) var(--oy, 50%);
   animation: mm-pop 0.34s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+/* the card takes focus on open so the dialog is announced; it's a container,
+   not a control, and the whole screen already changed — no ring needed here.
+   Every actual control inside it keeps its own visible indicator. */
+.mm-card:focus,
+.mm-card:focus-visible {
+  outline: none;
 }
 /* grow up out of the clicked card: scale + fade + lift */
 @keyframes mm-pop {
@@ -1018,6 +1120,15 @@ a.legend-link {
 .mm-legend-note {
   font-style: italic;
 }
+/* Framing line under the legend — keeps the reference row reading as a sample
+   rather than a target. Quiet on purpose: same size as the legend, no rule
+   above it, no colour that could imply a verdict. */
+.mm-context {
+  margin: 9px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
 
 /* clickable dots / ref ticks + the in-modal player */
 .mm-take.is-clickable,
@@ -1042,8 +1153,13 @@ a.legend-link {
   transform: scaleY(1.25);
   filter: brightness(0.95);
 }
+/* a 2px tick can't show focus by growing — it needs an actual ring */
+.mm-ref.is-clickable {
+  border-radius: 4px;
+}
 .mm-ref.is-clickable:focus-visible {
-  outline: none;
+  outline: var(--focus-ring);
+  outline-offset: 3px;
 }
 .mm-ref.is-playing .mm-ref-stem {
   box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px rgba(176, 106, 150, 0.5);

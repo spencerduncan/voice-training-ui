@@ -14,7 +14,9 @@ export function ZoneBar({ zones, value, lo, hi }: Props) {
       <div className="zonebar">
         {zones.map((z, i) => {
           const left = Math.max(0, (z.from - lo) / span) * 100;
-          const w = ((Math.min(hi, z.to) - Math.max(lo, z.from)) / span) * 100;
+          // Clamp at 0: a zone lying entirely outside [lo, hi] would otherwise
+          // compute a negative width.
+          const w = Math.max(0, ((Math.min(hi, z.to) - Math.max(lo, z.from)) / span) * 100);
           return (
             <div
               key={i}
