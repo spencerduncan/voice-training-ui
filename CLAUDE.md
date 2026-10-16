@@ -63,9 +63,11 @@ goal is just as important as the metrics:
   never a verdict. The footer literally says so. Honor that everywhere.
 - **Honest but kind.** Don't inflate progress (if "melody" is really register crashes,
   say so) — but always pair a weakness with a concrete, doable next step, and end warm.
-- **Woven-in, personal encouragement.** The little notes ("you're in the *fem* zone —
-  165 Hz+ reads feminine to most ears 💕") are a core feature, not decoration. Personalize
-  them per recording where it helps (see the annotation slots below).
+- **Woven-in, personal encouragement.** The little notes ("you're in the *fem* zone with
+  bright resonance to match — that pairing is what ears actually go on 💕") are a core
+  feature, not decoration. Personalize them per recording where it helps (see the
+  annotation slots below). Keep them **conditional** where the science is conditional —
+  the pitch note only says "reads feminine" when F2 is bright too (see Pitch below).
 - Emoji in moderation (🌸🎀🎯💕🌱). Rounded font (`ui-rounded`). Keep it soft.
 
 ### Color convention — STRICT
@@ -256,7 +258,18 @@ and the one place the reference pipeline lives (edit it there, not ad hoc).
 
 ## What gets measured & why (voice fem)
 
-- **Pitch (F0)** — biggest cue. ~165 Hz+ average reads feminine to most ears.
+- **Pitch (F0)** — the biggest *single* cue, but not sufficient on its own. **Never present
+  165 Hz as an unconditional verdict.** Hillenbrand & Clark (2009, *Atten Percept Psychophys*
+  71(5):1150–1166) resynthesized voices and found that shifting f0 **or** formants alone was
+  "usually ineffective" at changing perceived sex, while shifting both worked ~82% of the time
+  — "though even together these cues are not entirely effective." Gelfer & Bennett (2013) found
+  male identification declines "at 165 Hz and above" and that in the 145–165 Hz band "vowel
+  formants appeared to be important to perception of gender." So 165 Hz is a real **inflection
+  point** — the top of the gender-ambiguous range, where resonance starts doing the deciding —
+  not a threshold a voice crosses. The `note.pitch` slot is therefore **conditioned on F2**: it
+  only says "reads feminine" when F2 is in its bright band too. Keep it that way.
+  The grounding fact worth repeating (it's in the cheat sheet): reference speaker **VCTK p294
+  is a cis woman at 164 Hz mean F0 with F2 1396 Hz — "neutral" on *both* of this app's gauges.**
 - **Resonance (formants F1/F2/F3)** — the "vocal-tract size / brightness" cue; what makes
   a voice read light independent of pitch. Often the biggest lever after pitch. F1 is
   vowel-driven, not a reliable gender cue alone. **Now vowel-targeted** (in

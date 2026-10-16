@@ -78,6 +78,10 @@ export function App() {
     (selectedId != null ? R.find((r) => r.id === selectedId) : null) ?? latest;
   const pz = active ? zoneOf(PITCH_ZONES, active.pitch.mean_hz) : null;
   const pitchGoal = goalOf(PITCH_ZONES);
+  // Pitch alone doesn't settle how a voice reads — f0 and formants are read
+  // together (Hillenbrand & Clark 2009), so the pitch note is conditioned on
+  // where F2 sits before it ever says "reads feminine".
+  const f2z = active ? zoneOf(F2_ZONES, active.formants.f2_hz) : null;
   const isLatest = active && latest && active.id === latest.id;
 
   const mk = (sel: (r: Recording) => number | null): Point[] =>
@@ -148,13 +152,24 @@ export function App() {
                 onExpand={openModal}
                 sub={
                   <Note id="note.pitch">
-                    {pz ? (
+                    {!pz ? (
+                      ""
+                    ) : pz.name === "fem" && f2z?.name === "bright" ? (
                       <>
-                        you're in the <b>{pz.name}</b> zone — 165 Hz+ reads
-                        feminine to most ears 💕
+                        you're in the <b>fem</b> zone with bright resonance to
+                        match — that pairing is what ears actually go on 💕
+                      </>
+                    ) : pz.name === "fem" ? (
+                      <>
+                        you're in the <b>fem</b> zone — 165 Hz is the top of the
+                        in-between range, and resonance takes it from there 🌱
                       </>
                     ) : (
-                      ""
+                      <>
+                        you're in the <b>{pz.name}</b> zone — 165 Hz is where the
+                        in-between range tops out, and pitch &amp; resonance
+                        decide together from there 🌱
+                      </>
                     )}
                   </Note>
                 }
