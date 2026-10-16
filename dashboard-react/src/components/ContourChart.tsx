@@ -56,11 +56,16 @@ export function ContourChart({
   // Build contour segments, one per run of the same kind, so each can be
   // stroked its own colour. A run breaks on unvoiced gaps too. When the kind
   // changes mid-run the new segment starts at the previous point, so the line
-  // stays continuous instead of leaving a one-frame gap at every change.
+  // stays continuous instead of leaving a one-frame gap at every change — but
+  // only across a small step: creak often reads at half the pitch, and a
+  // bridge over that jump would draw a solid in-register line plunging
+  // through the floor.
+  const BRIDGE_ST = 3;
   type Seg = { kind: Kind; pts: [number, number][] };
   const segs: Seg[] = [];
   let cur: Seg | null = null;
   let last: [number, number] | null = null; // previous voiced point in this run
+  let lastHz = 0;
   for (let i = 0; i < hz.length; i++) {
     const f = hz[i];
     if (f == null || state?.[i] === FRAME_STATE.unvoiced) {
@@ -71,11 +76,13 @@ export function ContourChart({
     const kind = kindOf(state?.[i], f, floor);
     const pt: [number, number] = [x(t[i]), y(f)];
     if (!cur || cur.kind !== kind) {
-      cur = { kind, pts: last ? [last] : [] };
+      const bridge = last && Math.abs(12 * Math.log2(f / lastHz)) < BRIDGE_ST;
+      cur = { kind, pts: bridge && last ? [last] : [] };
       segs.push(cur);
     }
     cur.pts.push(pt);
     last = pt;
+    lastHz = f;
   }
   const toPath = (pts: [number, number][]) =>
     pts.map((p, k) => `${k ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
