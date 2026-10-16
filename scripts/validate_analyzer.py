@@ -208,6 +208,8 @@ def measure(sound: parselmouth.Sound) -> dict:
         "offset_sub_pct": reg.get("offset_sub_pct"),
         "semitones_sd": reg.get("semitones_sd"),
         "in_register_semitones_sd": reg.get("in_register_semitones_sd"),
+        "melody_null_reason": reg.get("melody_null_reason"),
+        "analyzer_version": getattr(A, "ANALYZER_VERSION", None),
         "elapsed_analyze_s": round(t1 - t0, 2),
         "elapsed_register_s": round(t2 - t1, 2),
         **raw,
@@ -272,6 +274,37 @@ def print_deltas(rows: list[dict], base: list[dict]) -> None:
             else:
                 cells.append(f"{fmt(o, 0)}->{fmt(n, 0)}".rjust(12))
         print(f"{r['key']:<16}  " + "  ".join(cells))
+
+
+NOT_COMPARED = {"elapsed_analyze_s", "elapsed_register_s", "analyzer_version"}
+
+
+def print_field_diff(current: dict[str, list[dict]], base: dict[str, list[dict]]) -> None:
+    """Every field of every speaker/sim/transient row against the baseline:
+    which fields differ (and in how many rows), which are new, which are gone.
+    Timings and the version stamp are left out — only measurements count."""
+    print("\n=== field-level comparison vs baseline (timings ignored) ===")
+    for part in ("rows", "sims", "transients"):
+        old = {r["key"]: r for r in base.get(part) or []}
+        differing: dict[str, int] = {}
+        added: set[str] = set()
+        removed: set[str] = set()
+        n = 0
+        for r in current.get(part) or []:
+            b = old.get(r["key"])
+            if b is None:
+                continue
+            n += 1
+            for k in r.keys() - NOT_COMPARED:
+                if k not in b:
+                    added.add(k)
+                elif r[k] != b[k]:
+                    differing[k] = differing.get(k, 0) + 1
+            removed |= b.keys() - r.keys() - NOT_COMPARED
+        print(f"  {part}: {n} compared · differing: "
+              + (", ".join(f"{k} ({c})" for k, c in sorted(differing.items())) or "none")
+              + f" · new: {', '.join(sorted(added)) or 'none'}"
+              + f" · gone: {', '.join(sorted(removed)) or 'none'}")
 
 
 def tiled_summary(rows: list[dict]) -> None:
@@ -426,6 +459,7 @@ def main() -> None:
         print_transients(transients, base.get("transients") if base else None)
     if base:
         print_deltas(rows, base["rows"])
+        print_field_diff({"rows": rows, "sims": sims, "transients": transients}, base)
     if args.out:
         args.out.write_text(json.dumps({"rows": rows, "sims": sims, "transients": transients},
                                        indent=1), encoding="utf-8")

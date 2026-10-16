@@ -68,6 +68,15 @@ def _use_utf8_console() -> None:
 
 _use_utf8_console()
 
+# Stamped on every take (`analyzer_version`) and every analysis/<id>.json, so the
+# dashboard and the analyze-voice skill can tell which pipeline measured a take.
+# Semver: MAJOR when a stored number changes meaning (takes from different majors
+# aren't comparable without --backfill), MINOR for new fields, PATCH for fixes
+# that leave every number alone. 2.0.0 is the October 2026 pipeline (take-relative
+# register floor, creak, fixed formant ceiling, p5/p95 pitch, cleaned pitch SD).
+# Takes without the field predate it.
+ANALYZER_VERSION = "2.0.0"
+
 ROOT = Path(__file__).resolve().parent
 RECORDINGS_JSON = ROOT / "recordings.json"  # source of truth
 
@@ -121,6 +130,10 @@ CREAK_MIN_SUBHARM = 0.3
 CRASH_MIN_S = 0.2
 CRASH_BRIDGE_S = 0.15
 CRASH_BREAK_FRAMES = 3
+# A phrase "started"/"ended in register" unless most of its first ONSET_WINDOW_S /
+# last ENDING_WINDOW_S of non-creak voicing is part of a crash.
+ONSET_WINDOW_S = 0.08
+ENDING_WINDOW_S = 0.12
 # Phrase segmentation: "silent" = intensity more than PHRASE_SILENCE_DB below the
 # take's 95th-percentile frame (a robust speech level; the old code used the
 # single loudest frame). Sounding stretches split by < PHRASE_MIN_GAP_S are one
@@ -779,8 +792,8 @@ def analyze_register(sound: parselmouth.Sound, floor: float | None = None,
         if not len(m_idx):  # all creak: nothing to say about register here
             continue
         tm = times[m_idx]
-        onset = m_idx[tm - tm[0] <= 0.08]
-        offset = m_idx[tm[-1] - tm <= 0.12]
+        onset = m_idx[tm - tm[0] <= ONSET_WINDOW_S]
+        offset = m_idx[tm[-1] - tm <= ENDING_WINDOW_S]
         onset_hz = float(np.mean(f0[onset]))
         offset_hz = float(np.mean(f0[offset]))
         phrases.append({
@@ -816,6 +829,15 @@ def analyze_register(sound: parselmouth.Sound, floor: float | None = None,
     n_melody = int(melody.sum())
     enough = n_melody >= MELODY_MIN_FRAMES and n_melody >= MELODY_MIN_SHARE * n_voiced
     in_register_semitones_sd = clean(sd([hz_to_st(h) for h in f0[melody]])) if enough else None
+    melody_null_reason = None
+    if in_register_semitones_sd is None:
+        if n_melody < MELODY_MIN_FRAMES:
+            melody_null_reason = f"too few steady frames: {n_melody} < {MELODY_MIN_FRAMES}"
+        elif n_melody < MELODY_MIN_SHARE * n_voiced:
+            melody_null_reason = (f"too little of the voicing is steady: "
+                                  f"{100 * n_melody / n_voiced:.0f}% < {MELODY_MIN_SHARE:.0%}")
+        else:
+            melody_null_reason = "no spread could be measured"
     landed = sum(p["ended_in_register"] for p in phrases)
     landed_pct = round(100 * landed / len(phrases)) if phrases else None
 
@@ -831,13 +853,20 @@ def analyze_register(sound: parselmouth.Sound, floor: float | None = None,
         "semitones_sd": semitones_sd,
         "in_register_semitones_sd": in_register_semitones_sd,
         "melody_frames": n_melody,
+        "melody_null_reason": melody_null_reason,
         "onset_sub_pct": pct(bins["onset"]),
         "mid_sub_pct": pct(bins["mid"]),
         "offset_sub_pct": pct(bins["offset"]),
         "phrases_landed_pct": landed_pct,
         "n_phrases": len(phrases),
+        # The thresholds behind the numbers above, so the UI can quote them.
+        "crash_min_s": CRASH_MIN_S,
+        "crash_bridge_s": CRASH_BRIDGE_S,
+        "onset_window_s": ONSET_WINDOW_S,
+        "ending_window_s": ENDING_WINDOW_S,
     }
     detail = {
+        "analyzer_version": ANALYZER_VERSION,
         "register_floor_hz": round(floor, 1),
         "semitone_ref_hz": SEMITONE_REF,
         "duration_s": round(duration, 2),
@@ -849,6 +878,12 @@ def analyze_register(sound: parselmouth.Sound, floor: float | None = None,
         "summary": headline,
     }
     return detail, headline
+
+
+def now_iso() -> str:
+    """Local time with its UTC offset, to the second — `analyzed_at`. (`date`
+    stays the take's own day, which --date can set.)"""
+    return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 def load_recordings() -> list[dict]:
@@ -895,6 +930,8 @@ def backfill(register_floor: float | None = None,
         entry.update(analyze(sound, intensity, formant_ceiling))
         detail, register = analyze_register(sound, floor, intensity)
         entry["register"] = register
+        entry["analyzer_version"] = ANALYZER_VERSION
+        entry["analyzed_at"] = now_iso()
         (ANALYSIS_DIR / f"{entry['id']}.json").write_text(json.dumps(detail))
         print(f"✅ #{entry['id']} backfilled — weight {entry['weight']}")
     recordings.sort(key=lambda r: r["id"])
@@ -973,6 +1010,8 @@ def main() -> None:
         "source_file": src.name,
         "audio": f"audio/{playback_name}",
         "detail": f"analysis/{rec_id}.json",
+        "analyzer_version": ANALYZER_VERSION,
+        "analyzed_at": now_iso(),
         **metrics,
         "register": register,
     }
