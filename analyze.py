@@ -23,6 +23,7 @@ dashboard-react/ reads everything from its public/ dir at runtime.
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import math
 import shutil
@@ -108,15 +109,50 @@ def sd(values: list[float]) -> float | None:
     return statistics.stdev(values) if len(values) >= 2 else None
 
 
+# Temp dirs handed out by to_wav_mono(). The converted WAV has to stay readable
+# after the call returns — every caller builds a parselmouth.Sound from the
+# returned path, and scripts/build_reference_set.py does it inline
+# (`analyze(parselmouth.Sound(str(to_wav_mono(c))))`) — so we can't delete
+# eagerly or return a context manager without breaking those call sites.
+# Instead we remember each dir and sweep them all when the process exits.
+_TEMP_WAV_DIRS: list[str] = []
+
+
+def _cleanup_temp_wavs() -> None:
+    while _TEMP_WAV_DIRS:
+        shutil.rmtree(_TEMP_WAV_DIRS.pop(), ignore_errors=True)
+
+
+atexit.register(_cleanup_temp_wavs)
+
+
 def to_wav_mono(src: Path) -> Path:
-    """Convert any audio file to a temp mono WAV for analysis via ffmpeg."""
-    tmp = Path(tempfile.mkdtemp()) / "analysis.wav"
+    """Convert any audio file to a temp mono WAV for analysis via ffmpeg.
+
+    The returned path stays valid for the rest of the process; its temp dir is
+    removed at exit, so a long run (build_reference_set.py converts ~60 clips)
+    no longer leaves a pile of orphaned directories behind.
+    """
+    tmp_dir = tempfile.mkdtemp(prefix="voice-garden-")
+    _TEMP_WAV_DIRS.append(tmp_dir)
+    tmp = Path(tmp_dir) / "analysis.wav"
     subprocess.run(
         ["ffmpeg", "-y", "-i", str(src), "-ac", "1", "-ar", "44100", str(tmp)],
         check=True,
         capture_output=True,
     )
     return tmp
+
+
+def _intensity(sound: parselmouth.Sound) -> parselmouth.Intensity:
+    """The one Intensity parameterisation used everywhere: minimum pitch
+    PITCH_FLOOR, automatic time step, mean subtracted.
+
+    Kept in a single place so the object can be built once per run and threaded
+    through every consumer (loudness stats, the vowel-nucleus loudness gate,
+    phrase segmentation) with no risk of the call sites drifting apart.
+    """
+    return call(sound, "To Intensity", PITCH_FLOOR, 0, "yes")
 
 
 def _iseli_correction(f_harmonic: float, f_formant: float, bw_formant: float,
@@ -164,7 +200,9 @@ def _harmonic_db(spec_freqs: np.ndarray, spec_db: np.ndarray, target_hz: float,
     return peak
 
 
-def spectral_weight(sound: parselmouth.Sound) -> dict:
+def spectral_weight(sound: parselmouth.Sound,
+                    pitch: parselmouth.Pitch | None = None,
+                    formant: parselmouth.Formant | None = None) -> dict:
     """Vocal *weight* via **corrected H1*–A3*** — the Iseli–Alwan (2007) source
     spectral-tilt measure (as used in VoiceSauce).
 
@@ -182,6 +220,10 @@ def spectral_weight(sound: parselmouth.Sound) -> dict:
     Larger H1*–A3* = steeper source roll-off = LIGHTER (more feminine); smaller
     (flatter) = HEAVIER. (Opposite direction from the old alpha ratio.)
 
+    `pitch` and `formant` may be handed in by a caller that already built them
+    with these exact parameters (analyze() does) — same objects, same values,
+    one less Pitch and one less Formant pass per run.
+
     Returns:
       - h1a3c_db: mean corrected H1*–A3* over voiced frames (the headline).
       - h1a3_db:  mean UNcorrected H1–A3 over voiced frames (cheap secondary).
@@ -189,8 +231,10 @@ def spectral_weight(sound: parselmouth.Sound) -> dict:
     """
     fs = sound.sampling_frequency
     dur = sound.get_total_duration()
-    pitch = call(sound, "To Pitch", 0.0, PITCH_FLOOR, PITCH_CEILING)
-    formant = call(sound, "To Formant (burg)", 0.0, 5, FORMANT_CEILING, 0.025, 50)
+    if pitch is None:
+        pitch = call(sound, "To Pitch", 0.0, PITCH_FLOOR, PITCH_CEILING)
+    if formant is None:
+        formant = call(sound, "To Formant (burg)", 0.0, 5, FORMANT_CEILING, 0.025, 50)
 
     # Voiced frames: pull the whole F0 track in one numpy shot (no per-frame
     # Praat round-trips), then subsample so cost is bounded on long recordings —
@@ -289,7 +333,9 @@ def spectral_weight(sound: parselmouth.Sound) -> dict:
     }
 
 
-def vowel_formants(sound: parselmouth.Sound, pitch: parselmouth.Pitch) -> dict:
+def vowel_formants(sound: parselmouth.Sound, pitch: parselmouth.Pitch,
+                   intensity: parselmouth.Intensity | None = None,
+                   formant: parselmouth.Formant | None = None) -> dict:
     """Vowel-nucleus-targeted F1/F2/F3 (median over vowel cores), in Hz.
 
     The old method averaged each formant over EVERY voiced frame, which folds in
@@ -320,8 +366,13 @@ def vowel_formants(sound: parselmouth.Sound, pitch: parselmouth.Pitch) -> dict:
     at a lower 5000 ceiling typical for longer (masculine) tracts — and pick the
     ceiling whose vowel-gated frames give the **tighter** (lower-spread) F2
     distribution, i.e. the cleaner track. This is applied uniformly to takes AND
-    refs, so M/F stay comparable; it costs one extra Formant pass and no per-bin
-    loops, so runtime stays bounded.
+    refs, so M/F stay comparable; it costs one extra Formant pass (the 5500 one
+    is shared with analyze()/spectral_weight()) and no per-bin loops, so runtime
+    stays bounded.
+
+    `intensity` and `formant` (the 5500 Hz one) may be handed in by a caller that
+    already built them with the same parameters — analyze() does, so a full run
+    builds each object once instead of once per metric.
     """
     f0s = pitch.selected_array["frequency"]
     ts = pitch.xs()
@@ -330,7 +381,8 @@ def vowel_formants(sound: parselmouth.Sound, pitch: parselmouth.Pitch) -> dict:
         return {1: None, 2: None, 3: None}
 
     # Loud gate: intensity track in one shot; threshold = peak - 10 dB.
-    intensity = call(sound, "To Intensity", PITCH_FLOOR, 0, "yes")
+    if intensity is None:
+        intensity = _intensity(sound)
     int_vals = intensity.values[0]
     int_ts = intensity.xs()
     int_max = float(np.nanmax(int_vals))
@@ -348,14 +400,16 @@ def vowel_formants(sound: parselmouth.Sound, pitch: parselmouth.Pitch) -> dict:
         step = len(cand_ts) / max_frames
         cand_ts = [cand_ts[int(k * step)] for k in range(max_frames)]
 
-    def measure(ceiling: float) -> dict[int, list[float]]:
-        formant = call(sound, "To Formant (burg)", 0.0, 5, ceiling, 0.025, 50)
+    def measure(ceiling: float,
+                prebuilt: parselmouth.Formant | None = None) -> dict[int, list[float]]:
+        fmt = prebuilt if prebuilt is not None else call(
+            sound, "To Formant (burg)", 0.0, 5, ceiling, 0.025, 50)
         rows: list[tuple[float, float, float, float]] = []  # (t, f1, f2, f3)
         for t in cand_ts:
             vals = []
             ok = True
             for n in (1, 2, 3):
-                v = formant.get_value_at_time(n, t)
+                v = fmt.get_value_at_time(n, t)
                 if math.isnan(v) or v <= 0:
                     ok = False
                     break
@@ -385,7 +439,7 @@ def vowel_formants(sound: parselmouth.Sound, pitch: parselmouth.Pitch) -> dict:
     best = None
     best_spread = float("inf")
     for ceiling in (FORMANT_CEILING, 5000.0):
-        fv = measure(ceiling)
+        fv = measure(ceiling, formant if ceiling == FORMANT_CEILING else None)
         if len(fv[2]) < 5:
             continue
         spread = statistics.pstdev(fv[2])
@@ -393,17 +447,31 @@ def vowel_formants(sound: parselmouth.Sound, pitch: parselmouth.Pitch) -> dict:
             best_spread = spread
             best = fv
     if best is None:
-        best = measure(FORMANT_CEILING)
+        best = measure(FORMANT_CEILING, formant)
 
     return {n: (statistics.median(best[n]) if best[n] else None) for n in (1, 2, 3)}
 
 
-def analyze(sound: parselmouth.Sound) -> dict:
-    """Standard summary metrics for the permanent dashboard cards."""
+def analyze(sound: parselmouth.Sound,
+            intensity: parselmouth.Intensity | None = None) -> dict:
+    """Standard summary metrics for the permanent dashboard cards.
+
+    `intensity` may be supplied by a caller that also runs analyze_register()
+    on the same Sound (main() and backfill() do), so the two analyses share one
+    Intensity object; otherwise it's built here.
+    """
     duration = sound.get_total_duration()
 
-    # ---- Pitch (F0) -------------------------------------------------------
+    # ---- Shared Praat objects ---------------------------------------------
+    # Built ONCE and threaded into vowel_formants()/spectral_weight(), which
+    # used to each construct their own with exactly these parameters. Same
+    # commands, same arguments, same values — just a third of the work.
     pitch = call(sound, "To Pitch", 0.0, PITCH_FLOOR, PITCH_CEILING)
+    formant = call(sound, "To Formant (burg)", 0.0, 5, FORMANT_CEILING, 0.025, 50)
+    if intensity is None:
+        intensity = _intensity(sound)
+
+    # ---- Pitch (F0) -------------------------------------------------------
     mean_f0 = call(pitch, "Get mean", 0, 0, "Hertz")
     min_f0 = call(pitch, "Get minimum", 0, 0, "Hertz", "Parabolic")
     max_f0 = call(pitch, "Get maximum", 0, 0, "Hertz", "Parabolic")
@@ -411,7 +479,7 @@ def analyze(sound: parselmouth.Sound) -> dict:
     median_f0 = call(pitch, "Get quantile", 0, 0, 0.5, "Hertz")
 
     # ---- Formants (resonance): vowel-nucleus-targeted median (F2/F3 focus) -
-    mean_formant = vowel_formants(sound, pitch)
+    mean_formant = vowel_formants(sound, pitch, intensity, formant)
 
     # ---- Voice quality: HNR, jitter, shimmer -----------------------------
     harmonicity = call(sound, "To Harmonicity (cc)", 0.01, PITCH_FLOOR, 0.1, 1.0)
@@ -424,7 +492,6 @@ def analyze(sound: parselmouth.Sound) -> dict:
     )
 
     # ---- Intensity (loudness) — directly relevant to "be louder" ---------
-    intensity = call(sound, "To Intensity", PITCH_FLOOR, 0, "yes")
     mean_int = call(intensity, "Get mean", 0, 0, "energy")
     min_int = call(intensity, "Get minimum", 0, 0, "Parabolic")
     max_int = call(intensity, "Get maximum", 0, 0, "Parabolic")
@@ -454,16 +521,19 @@ def analyze(sound: parselmouth.Sound) -> dict:
             "min_db": clean(min_int),
             "max_db": clean(max_int),
         },
-        "weight": spectral_weight(sound),
+        "weight": spectral_weight(sound, pitch, formant),
     }
 
 
-def segment_phrases(sound: parselmouth.Sound) -> list[tuple[float, float]]:
+def segment_phrases(sound: parselmouth.Sound,
+                    intensity: parselmouth.Intensity | None = None) -> list[tuple[float, float]]:
     """Split the recording into phrases using silence detection.
 
     Returns a list of (start, end) times for the "sounding" stretches.
+    `intensity` is the run's shared Intensity object when the caller has one.
     """
-    intensity = sound.to_intensity(minimum_pitch=PITCH_FLOOR)
+    if intensity is None:
+        intensity = _intensity(sound)
     grid = call(
         intensity, "To TextGrid (silences)", -25.0, 0.1, 0.05, "silent", "sounding"
     )
@@ -477,13 +547,22 @@ def segment_phrases(sound: parselmouth.Sound) -> list[tuple[float, float]]:
     return spans
 
 
-def analyze_register(sound: parselmouth.Sound, floor: float) -> tuple[dict, dict]:
+def analyze_register(sound: parselmouth.Sound, floor: float,
+                     intensity: parselmouth.Intensity | None = None) -> tuple[dict, dict]:
     """Detailed register & phrasing analysis.
 
     Returns (detail, headline) where `detail` is the heavy per-frame/per-phrase
     payload written to public/analysis/<id>.json and `headline` is the compact
     summary folded into the recording entry for the dashboard cards.
+
+    `intensity` is the run's shared Intensity object (phrase segmentation is the
+    only thing here that needs one). The Pitch object below is deliberately NOT
+    shared with analyze() — see the comment on it.
     """
+    # This Pitch is its own object on purpose: a fixed 0.01 s time step, because
+    # the contour chart and the per-frame register stats need an even timeline.
+    # analyze() uses Praat's automatic step, so the two are genuinely different
+    # analyses and must not be merged.
     pitch = sound.to_pitch(0.01, PITCH_FLOOR, PITCH_CEILING)
     f0 = pitch.selected_array["frequency"]
     times = pitch.xs()
@@ -495,7 +574,7 @@ def analyze_register(sound: parselmouth.Sound, floor: float) -> tuple[dict, dict
     voiced = [(float(t), float(h)) for t, h in zip(times, f0) if h > 0]
 
     # ---- per-phrase boundary behavior + positional sub-register counts ----
-    spans = segment_phrases(sound)
+    spans = segment_phrases(sound, intensity)
     phrases: list[dict] = []
     # [sub_count, total] per third of a phrase
     bins = {"onset": [0, 0], "mid": [0, 0], "offset": [0, 0]}
@@ -589,8 +668,9 @@ def backfill() -> None:
         wav = to_wav_mono(src) if src.suffix.lower() != ".wav" else src
         sound = parselmouth.Sound(str(wav))
         floor = entry.get("register", {}).get("floor_hz", DEFAULT_REGISTER_FLOOR)
-        entry.update(analyze(sound))
-        detail, register = analyze_register(sound, floor)
+        intensity = _intensity(sound)  # shared by both analyses below
+        entry.update(analyze(sound, intensity))
+        detail, register = analyze_register(sound, floor, intensity)
         entry["register"] = register
         (ANALYSIS_DIR / f"{entry['id']}.json").write_text(json.dumps(detail))
         print(f"✅ #{entry['id']} backfilled — weight {entry['weight']}")
@@ -647,8 +727,9 @@ def main() -> None:
     wav_path = to_wav_mono(src) if needs_convert else src
     print(f"🎧 Analyzing entry #{rec_id}: {src.name} ...")
     sound = parselmouth.Sound(str(wav_path))
-    metrics = analyze(sound)
-    detail, register = analyze_register(sound, args.register_floor)
+    intensity = _intensity(sound)  # shared by both analyses below
+    metrics = analyze(sound, intensity)
+    detail, register = analyze_register(sound, args.register_floor, intensity)
 
     playback_name = f"{rec_id:03d}{src.suffix.lower()}"
     shutil.copy2(src, AUDIO_DIR / playback_name)
