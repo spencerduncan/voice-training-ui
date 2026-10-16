@@ -51,6 +51,7 @@ import analyze as A
 REF_AUDIO = ROOT / "dashboard-react" / "public" / "reference-audio"
 DEFAULT_TILE = ("vctk_f294", "vctk_m311")
 TILE_FACTORS = (4, 8)
+DEFAULT_TRANSIENT = ("vctk_f297", "vctk_m311", "vctk_f301")
 DEFAULT_SIM = ("vctk_f301", "vctk_f318")  # no sub-0.6x-median frames: clean modal voices
 SIM_FACTORS = (1.0, 0.75, 0.65, 0.55)  # 1.0 = resynthesis control; 0.75 = -5 st ... 0.55 = -10.3 st
 SIM_TAIL_S = 0.6
@@ -312,6 +313,35 @@ def print_sims(rows: list[dict], base: list[dict] | None) -> None:
             for k in SIM_KEYS))
 
 
+def run_transients(keys: list[str]) -> list[dict]:
+    """Formants with and without one 15 ms full-scale noise burst in the leading
+    silence: a single transient should not move (or null) a take's formants."""
+    rng = np.random.default_rng(0)
+    rows = []
+    for key in keys:
+        sound = parselmouth.Sound(str(A.to_wav_mono(REF_AUDIO / f"{key}.mp3")))
+        fs = int(sound.sampling_frequency)
+        v = sound.values.copy()
+        i0, n = int(0.05 * fs), int(0.015 * fs)
+        v[0, i0:i0 + n] = rng.uniform(-0.99, 0.99, n)
+        clean, hit = (A.analyze(s)["formants"]
+                      for s in (sound, parselmouth.Sound(v, sampling_frequency=fs)))
+        rows.append({"key": key, "f2_hz": clean["f2_hz"], "f3_hz": clean["f3_hz"],
+                     "f2_hit_hz": hit["f2_hz"], "f3_hit_hz": hit["f3_hz"]})
+    return rows
+
+
+def print_transients(rows: list[dict], base: list[dict] | None) -> None:
+    print("\n=== one loud transient (15 ms burst in the leading silence) ===")
+    old = {r["key"]: r for r in base or []}
+    for r in rows:
+        b = old.get(r["key"])
+        was = (f"   (before: {fmt(b['f2_hz'], 0)}/{fmt(b['f3_hz'], 0)} -> "
+               f"{fmt(b['f2_hit_hz'], 0)}/{fmt(b['f3_hit_hz'], 0)})") if b else ""
+        print(f"  {r['key']:<12} F2/F3 clean {fmt(r['f2_hz'], 0)}/{fmt(r['f3_hz'], 0)} -> "
+              f"with transient {fmt(r['f2_hit_hz'], 0)}/{fmt(r['f3_hit_hz'], 0)}{was}")
+
+
 def summary(rows: list[dict]) -> None:
     singles = [r for r in rows if "@" not in r["key"]]
     print("\n=== group summary (1x previews) ===")
@@ -348,6 +378,8 @@ def main() -> None:
                     help="speakers to also run tiled 4x/8x ('' to skip)")
     ap.add_argument("--sim", default=",".join(DEFAULT_SIM),
                     help="clean speakers for the simulated-crash check ('' to skip)")
+    ap.add_argument("--transient", default=",".join(DEFAULT_TRANSIENT),
+                    help="speakers for the single-transient formant check ('' to skip)")
     ap.add_argument("--analyzer", type=Path,
                     help="validate this copy of analyze.py instead of the repo's")
     args = ap.parse_args()
@@ -379,22 +411,26 @@ def main() -> None:
                   f"({row['elapsed_analyze_s'] + row['elapsed_register_s']:.1f}s)", flush=True)
 
     sims = run_sims([k for k in args.sim.split(",") if k])
+    transients = run_transients([k for k in args.transient.split(",") if k])
     base = json.loads(args.compare.read_text(encoding="utf-8")) if args.compare else None
     if isinstance(base, list):  # older --out files held only the speaker rows
-        base = {"rows": base, "sims": []}
+        base = {"rows": base}
 
     print()
     print_table(rows)
     summary(rows)
     tiled_summary(rows)
     if sims:
-        print_sims(sims, base["sims"] if base else None)
+        print_sims(sims, base.get("sims") if base else None)
+    if transients:
+        print_transients(transients, base.get("transients") if base else None)
     if base:
         print_deltas(rows, base["rows"])
     if args.out:
-        args.out.write_text(json.dumps({"rows": rows, "sims": sims}, indent=1),
-                            encoding="utf-8")
-        print(f"\n🌸 wrote {len(rows)} rows + {len(sims)} sims → {args.out}")
+        args.out.write_text(json.dumps({"rows": rows, "sims": sims, "transients": transients},
+                                       indent=1), encoding="utf-8")
+        print(f"\n🌸 wrote {len(rows)} rows, {len(sims)} sims, {len(transients)} transient "
+              f"checks → {args.out}")
 
 
 if __name__ == "__main__":
