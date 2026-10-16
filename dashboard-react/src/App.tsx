@@ -129,7 +129,7 @@ export function App() {
       )}
 
       {active && (
-        <AnnotationsProvider recording={active}>
+        <AnnotationsProvider recording={active} recordings={R}>
           <Region id="region.top" />
 
           {/* 🎀 This take */}
@@ -318,6 +318,19 @@ export function App() {
                   <br />
                   ask Claude to "analyze this recording" — it'll design one right
                   here.
+                </div>
+              }
+              loading={
+                <div className="insight-placeholder">
+                  opening take #{active.id}'s insight… 🌱
+                </div>
+              }
+              failed={
+                <div className="insight-placeholder">
+                  🌧️ this take's insight failed to load — the rest of the page is
+                  fine.
+                  <br />
+                  the browser console says what went wrong in its entry file.
                 </div>
               }
             />

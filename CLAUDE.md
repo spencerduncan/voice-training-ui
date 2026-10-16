@@ -371,9 +371,10 @@ scripts/build_reference_set.py ──(uv run + ffmpeg)──►    public/refere
 The page layout lives **once**. Personalization happens through named slots woven through
 the UI, backed by **one file per recording** at
 `dashboard-react/src/annotations/entries/<NNN>.tsx` (zero-padded id) that default-exports
-a `RecordingAnnotations` ({ slots }). Auto-discovered via Vite `import.meta.glob` — no
-registry. Switching recordings loads that file, so old takes keep their notes. Only the
-bespoke bits are authored; nothing about the page is copy-pasted per recording.
+a `RecordingAnnotations` ({ slots }). Auto-discovered via Vite `import.meta.glob`
+(`./entries/[0-9]*.tsx`, so the `_example.tsx` template is never bundled) — no registry.
+Switching recordings loads that file, so old takes keep their notes. Only the bespoke bits
+are authored; nothing about the page is copy-pasted per recording.
 
 Two slot kinds (`src/annotations/AnnotationsProvider.tsx`):
 - **`<Note id>`** — override a woven-in note that has a sensible default (children). If the
@@ -383,8 +384,24 @@ Two slot kinds (`src/annotations/AnnotationsProvider.tsx`):
 
 Available slots today: notes `note.pitch`, `note.loudness`, `note.weight`, `note.resonance`,
 `note.register`; regions `region.top`, `region.afterLatest`, `region.afterResonance`,
-`region.afterRegister`, `region.insights`, `region.bottom`. Add more `<Note>`/`<Region>`
-in the layout if a take needs to speak somewhere new.
+`region.afterRegister`, `region.insights`, `region.bottom`. They're a typed union (`SlotId` =
+`NoteId | RegionId` in `src/annotations/types.ts`), so a misspelt slot is a build error. To
+add one: extend the union, then place the `<Note>`/`<Region>` in the layout.
+
+How the provider keeps a bad entry from hurting the page:
+- **No stale content on a take switch.** The detail JSON and the entry module are tagged
+  with the take id they were loaded for, and the context only exposes values whose tag
+  matches the active take — mid-switch you see loading states, never the previous take's
+  contour or notes. Detail files are cached per session.
+- **Every slot runs inside an error boundary.** A slot that throws (when called or while its
+  JSX renders) logs `[annotations] slot "<id>" in entries/<NNN>.tsx threw` and shows the
+  default note / empty state. A slot returning `null` counts as "not provided".
+- **An entry that fails to import** (syntax/runtime error at module level) logs the file and
+  the insights region says "this take's insight failed to load"; notes fall back to defaults.
+- `Note` and `Region` apply `RichText` themselves.
+- Slot ctx is `{ recording, detail, recordings, previous }` — `recordings` sorted by id,
+  `previous` the take before. Entries read every number from ctx (or a goal from
+  `zones.ts`), never a typed-in literal.
 
 Reusable viz/components live in `src/annotations/lib/` (`InsightCard`, `Drill`,
 `PhraseEndingStrip`, …). **Grow this library**: if an insight needs a chart that could be

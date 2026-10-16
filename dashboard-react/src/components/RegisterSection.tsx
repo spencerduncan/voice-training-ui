@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { Register } from "../types";
 import { MASC, FEM, GROW, CONTOUR, fmt } from "../zones";
 import { ContourChart } from "./ContourChart";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { useAnnotations, Note } from "../annotations/AnnotationsProvider";
 
 // Permanent "Register & phrasing" visualizer. Reads the active recording and
@@ -16,7 +17,7 @@ import { useAnnotations, Note } from "../annotations/AnnotationsProvider";
 //   · the position bins are FIRST THIRD / MIDDLE / LAST THIRD of a phrase;
 //     "phrase endings" is reserved for phrases_landed_pct
 export function RegisterSection() {
-  const { recording, detail } = useAnnotations();
+  const { recording, detail, detailStatus } = useAnnotations();
   const reg = recording.register;
 
   if (!reg)
@@ -53,9 +54,27 @@ export function RegisterSection() {
 
       <div className="contour-card">
         {detail ? (
-          <ContourChart detail={detail} />
-        ) : (
+          <ErrorBoundary
+            resetKey={recording.id}
+            fallback={
+              <div className="contour-loading">
+                couldn't draw this take's contour 🌧️ — the numbers below still hold
+              </div>
+            }
+            onError={(err) => console.error(`[contour] take #${recording.id}`, err)}
+          >
+            <ContourChart detail={detail} />
+          </ErrorBoundary>
+        ) : detailStatus === "loading" ? (
           <div className="contour-loading">drawing your contour… 🌱</div>
+        ) : detailStatus === "error" ? (
+          <div className="contour-loading">
+            couldn't load this take's contour 🌧️ — re-running the analyzer on it usually fixes this
+          </div>
+        ) : (
+          <div className="contour-loading">
+            no contour saved for this take yet — re-run the analyzer to draw one 🌱
+          </div>
         )}
         {hasStates && <ContourLegend />}
       </div>
