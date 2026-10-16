@@ -232,21 +232,22 @@ the reference ticks above.
   intensity{mean_db}, voice_quality{hnr_db,jitter_pct}, weight{h1a3c_db} }`. Each speaker is the
   **average of ~3 utterances**; `source` cites the real VCTK speaker id + DataShare. Fetched at
   runtime (cache-busted) like `recordings.json`; the app **degrades gracefully** to `[]` if missing.
-- **`public/reference-audio/vctk_<g><id>.mp3`** — short single-sentence previews for the in-modal
-  player. VCTK utterances are already short, so no intro-trimming is needed. Mono, 96 kbps.
+- **`public/reference-audio/vctk_<g><id>.mp3`** — previews for the in-modal player: each
+  speaker's ~3 measured clips **concatenated** with 0.35 s gaps (≈10–18 s), mono, 96 kbps.
 - **What the data says:** pitch separates the sexes cleanly (F≈210 Hz vs M≈108 Hz); **weight
-  (corrected H1\*–A3\*) separates them ~4 dB** (F mean 8.55 vs M mean 12.51 dB; smaller =
+  (corrected H1\*–A3\*) separates them ~3.5 dB** (F mean 9.06 vs M mean 12.51 dB; smaller =
   lighter/feminine) — a real but imperfect cue (some overlap remains), and a big improvement on
   the old alpha ratio's ~1 dB. See `WEIGHT_ZONES` in `zones.ts`.
 
-**How to (re)generate** (done ad hoc with `uv run`; no committed generator):
-1. Stream the VCTK parquet mirror, filter `accent == American`, save ~3 clips/speaker to
-   `/tmp/vctk-ref/audio/`. The American speakers (p294+) sit in the **late shards**, so download
-   those directly with `huggingface_hub` + `pyarrow` and read the `audio` struct's `bytes`
-   (streaming from the start is too slow — shards are speaker-ordered).
-2. For each speaker, run `from analyze import analyze, to_wav_mono` on each clip, average, and
-   write `public/reference.json`; make previews with `ffmpeg -i <clip> -ac 1 -t 8 -b:a 96k`.
-3. Re-derive `WEIGHT_ZONES` from the new male/female `h1a3c_db` means.
+**How to (re)generate:** `uv run scripts/build_reference_set.py` — the committed generator
+and the one place the reference pipeline lives (edit it there, not ad hoc).
+1. It downloads the VCTK American speakers listed in its registry. They (p294+) sit in the
+   **late parquet shards**, so it fetches those directly with `huggingface_hub` + `pyarrow` and
+   reads the `audio` struct's `bytes`; clips are cached in `.refcache/` (gitignored), so re-runs
+   only fetch what's missing.
+2. For each speaker it runs the project's own `analyze()` on ~3 clips, averages them, writes
+   `public/reference.json`, and concatenates those clips into the preview mp3.
+3. It prints per-gender means + suggested thresholds; re-derive the bands in `zones.ts` from them.
 - To **add a metric to the comparison**: extend the per-speaker output + the `ReferenceVoice`
   type, regenerate, then add a `METRICS` entry with `ref:`.
 
@@ -278,7 +279,7 @@ the reference ticks above.
   old alpha ratio. It's a difference of two harmonic amplitudes, so it's largely
   **gain-independent** → comparable across recordings, unlike absolute loudness. Zones are
   reference-grounded against real male/female voices (see `WEIGHT_ZONES` in `zones.ts`), where
-  it separates the sexes by ~4 dB (F mean 8.55 vs M mean 12.51) — much better than the old
+  it separates the sexes by ~3.5 dB (F mean 9.06 vs M mean 12.51) — much better than the old
   alpha's ~1 dB. `h1a3_db` (uncorrected H1–A3) and `tilt_db_khz` (LTAS slope) are stored too
   as cheap secondaries.
 - **Register & phrasing** — the deep layer. Pitch isn't just an average; it's a *contour*.
@@ -304,7 +305,7 @@ analyze.py  ──(uv run)──►  recordings.json (root, source of truth)
    ▼
 dashboard-react/  (Vite + React + TS)  ── fetches public/* at runtime ──► browser
    ▲
-VCTK American refs (/tmp/vctk-ref) ──(uv run + ffmpeg)──► public/reference.json
+scripts/build_reference_set.py ──(uv run + ffmpeg)──►    public/reference.json
    (measured with the SAME analyze())                    public/reference-audio/vctk_*.mp3
                                                           (for the comparison modal)
 ```
@@ -339,7 +340,7 @@ in the layout if a take needs to speak somewhere new.
 Reusable viz/components live in `src/annotations/lib/` (`InsightCard`, `Drill`,
 `PhraseEndingStrip`, …). **Grow this library**: if an insight needs a chart that could be
 reused, add it to `lib/` and export it, then import from the entry — don't bury reusable
-viz inside one entry. `entries/001.tsx` is the reference example.
+viz inside one entry. `entries/_example.tsx` is the reference example (the template).
 
 ### Recording selector
 `App.tsx` tracks an `active` recording (defaults to latest). A pill switcher (shown with
@@ -369,9 +370,8 @@ the top sections + which annotation file loads.
     **`MetricModal.tsx`** (the reference-comparison modal — see its section above).
   - `src/annotations/` — `AnnotationsProvider` (context + `Note`/`Region`), `lib/`
     (reusable), `entries/` (per-recording, authored by you).
-- `/tmp/vctk-ref/audio/` — **NOT in the repo.** The downloaded VCTK American clips used to
-  generate `public/reference.json` + `reference-audio/` previews. See the "Reference voices"
-  section above for how to regenerate.
+- `scripts/build_reference_set.py` — the reference-set generator (see "Reference voices"
+  above). Its downloaded VCTK clips are cached in `.refcache/`, which is gitignored.
 - `.claude/skills/analyze-voice/` — the workflow skill.
 
 ---

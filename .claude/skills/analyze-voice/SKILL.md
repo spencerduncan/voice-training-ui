@@ -96,7 +96,7 @@ Reuse the library in **`src/annotations/lib/`** (import from `../lib`): `Insight
 (shell: title/subtitle/badges), `Drill` (a "try this" box), `PhraseEndingStrip` (per-phrase
 ending dots vs the floor). **Grow the library:** if your finding needs a new viz that could
 be reused, build it in `lib/`, export from `lib/index.ts`, then use it — don't bury reusable
-viz in one entry. `entries/001.tsx` is the reference example. Helpers (`fmt`, colors, zones)
+viz in one entry. `entries/_example.tsx` is the reference example (copy it to start). Helpers (`fmt`, colors, zones)
 are in `../../zones`.
 
 ### Conventions (non-negotiable)

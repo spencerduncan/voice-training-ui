@@ -56,7 +56,7 @@ export function CheatSheet() {
           </p>
           <div className="guide">
             F2: deeper &lt;1330 · mid 1330–1500 · <b>bright 1500 Hz+</b> (real
-            women avg ~1434, men ~1281; still varies by vowel)
+            women avg ~1450, men ~1281; still varies by vowel)
           </div>
           <div className="tip">
             💗 To brighten: smile slightly, lift the voice toward the front of
