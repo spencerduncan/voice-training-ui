@@ -7,8 +7,15 @@ numbers the dashboard leans on. A measurement that holds up should not move when
 the same audio is simply repeated, and should not grade an ordinary cis woman's
 read speech as "out of register".
 
+It also runs a sensitivity check: a few clean voices are re-synthesised (Praat
+PSOLA) with the last 0.6 s of every phrase pulled down by a fixed factor — a
+periodic, modal drop, standing in for falling into chest voice at phrase ends —
+plus an unmodified resynthesis as a control. A register model that forgives
+creak must still catch these.
+
     uv run scripts/validate_analyzer.py --out before.json
     uv run scripts/validate_analyzer.py --out after.json --compare before.json
+    uv run scripts/validate_analyzer.py --analyzer old/analyze.py   # any copy
 
 The script works against any version of analyze.py: fields the analyzer does not
 emit yet are filled in from a small amount of instrumentation (which formant
@@ -19,6 +26,7 @@ from the raw pitch track, and marked as such in the JSON.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import inspect
 import json
 import statistics
@@ -36,12 +44,16 @@ for _stream in (sys.stdout, sys.stderr):  # older analyze.py doesn't do this its
 
 import numpy as np
 import parselmouth
+from parselmouth.praat import call
 
 import analyze as A
 
 REF_AUDIO = ROOT / "dashboard-react" / "public" / "reference-audio"
 DEFAULT_TILE = ("vctk_f294", "vctk_m311")
 TILE_FACTORS = (4, 8)
+DEFAULT_SIM = ("vctk_f301", "vctk_f318")  # no sub-0.6x-median frames: clean modal voices
+SIM_FACTORS = (1.0, 0.75, 0.65, 0.55)  # 1.0 = resynthesis control; 0.75 = -5 st ... 0.55 = -10.3 st
+SIM_TAIL_S = 0.6
 
 
 # ---- instrumentation for analyzers that don't report their own ceiling ------
@@ -97,6 +109,31 @@ class _CeilingProbe:
 def tile(sound: parselmouth.Sound, n: int) -> parselmouth.Sound:
     return parselmouth.Sound(np.tile(sound.values, (1, n)),
                              sampling_frequency=sound.sampling_frequency)
+
+
+def simulate_crash(sound: parselmouth.Sound, factor: float) -> parselmouth.Sound:
+    """PSOLA-resynthesise `sound` with F0 x `factor` over the last SIM_TAIL_S of
+    each sounding stretch longer than 0.8 s. Self-contained segmentation (95th-
+    percentile intensity - 25 dB, gaps < 0.3 s bridged) so it doesn't depend on
+    the analyzer version under test."""
+    inten = sound.to_intensity(minimum_pitch=75.0)
+    iv, its = inten.values[0], inten.xs()
+    loud = (iv > -200) & (iv >= np.percentile(iv[iv > -200], 95) - 25)
+    spans: list[list[float]] = []
+    for i in np.flatnonzero(loud):
+        t = float(its[i])
+        if spans and t - spans[-1][1] < 0.3:
+            spans[-1][1] = t
+        else:
+            spans.append([t, t])
+    manip = call(sound, "To Manipulation", 0.01, 75, 600)
+    tier = call(manip, "Extract pitch tier")
+    if factor != 1.0:
+        for t0, t1 in spans:
+            if t1 - t0 > 0.8:
+                call(tier, "Multiply frequencies", t1 - SIM_TAIL_S, t1, factor)
+    call([tier, manip], "Replace pitch tier")
+    return call(manip, "Get resynthesis (overlap-add)")
 
 
 def raw_pitch_stats(sound: parselmouth.Sound) -> dict:
@@ -250,6 +287,31 @@ def tiled_summary(rows: list[dict]) -> None:
                   + (f"   spread {spread:.1f}" if spread is not None else ""))
 
 
+SIM_KEYS = ("floor_hz", "in_register_pct", "creak_pct", "n_crashes", "phrases_landed_pct",
+            "n_phrases", "offset_sub_pct")
+
+
+def run_sims(keys: list[str]) -> list[dict]:
+    rows = []
+    for key in keys:
+        sound = parselmouth.Sound(str(A.to_wav_mono(REF_AUDIO / f"{key}.mp3")))
+        for factor in SIM_FACTORS:
+            _detail, reg = register_call(simulate_crash(sound, factor))
+            rows.append({"key": f"{key}~x{factor:g}", **{k: reg.get(k) for k in SIM_KEYS}})
+    return rows
+
+
+def print_sims(rows: list[dict], base: list[dict] | None) -> None:
+    print(f"\n=== sensitivity: phrase-final modal drops (PSOLA, last {SIM_TAIL_S:g} s) ===")
+    old = {r["key"]: r for r in base or []}
+    print(f"{'sim':<18}" + "".join(f"{k[:14]:>16}" for k in SIM_KEYS))
+    for r in rows:
+        b = old.get(r["key"], {})
+        print(f"{r['key']:<18}" + "".join(
+            (f"{fmt(b.get(k), 0)}->{fmt(r.get(k), 0)}" if b else fmt(r.get(k), 1)).rjust(16)
+            for k in SIM_KEYS))
+
+
 def summary(rows: list[dict]) -> None:
     singles = [r for r in rows if "@" not in r["key"]]
     print("\n=== group summary (1x previews) ===")
@@ -284,7 +346,18 @@ def main() -> None:
     ap.add_argument("--only", help="comma-separated speaker keys (e.g. vctk_f294,vctk_m311)")
     ap.add_argument("--tile", default=",".join(DEFAULT_TILE),
                     help="speakers to also run tiled 4x/8x ('' to skip)")
+    ap.add_argument("--sim", default=",".join(DEFAULT_SIM),
+                    help="clean speakers for the simulated-crash check ('' to skip)")
+    ap.add_argument("--analyzer", type=Path,
+                    help="validate this copy of analyze.py instead of the repo's")
     args = ap.parse_args()
+
+    global A
+    if args.analyzer:
+        spec = importlib.util.spec_from_file_location("analyze", args.analyzer)
+        A = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(A)
+        print(f"analyzer: {args.analyzer}")
 
     files = sorted(REF_AUDIO.glob("*.mp3"))
     if args.only:
@@ -305,15 +378,23 @@ def main() -> None:
                   f"landed={row['phrases_landed_pct']} nPh={row['n_phrases']} "
                   f"({row['elapsed_analyze_s'] + row['elapsed_register_s']:.1f}s)", flush=True)
 
+    sims = run_sims([k for k in args.sim.split(",") if k])
+    base = json.loads(args.compare.read_text(encoding="utf-8")) if args.compare else None
+    if isinstance(base, list):  # older --out files held only the speaker rows
+        base = {"rows": base, "sims": []}
+
     print()
     print_table(rows)
     summary(rows)
     tiled_summary(rows)
-    if args.compare and args.compare.exists():
-        print_deltas(rows, json.loads(args.compare.read_text(encoding="utf-8")))
+    if sims:
+        print_sims(sims, base["sims"] if base else None)
+    if base:
+        print_deltas(rows, base["rows"])
     if args.out:
-        args.out.write_text(json.dumps(rows, indent=1), encoding="utf-8")
-        print(f"\n🌸 wrote {len(rows)} rows → {args.out}")
+        args.out.write_text(json.dumps({"rows": rows, "sims": sims}, indent=1),
+                            encoding="utf-8")
+        print(f"\n🌸 wrote {len(rows)} rows + {len(sims)} sims → {args.out}")
 
 
 if __name__ == "__main__":
