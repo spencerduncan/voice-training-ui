@@ -10,6 +10,7 @@ import {
   WEIGHT_ZONES,
   MELODY_ZONES,
   zoneOf,
+  goalOf,
   fmt,
 } from "./zones";
 import { StatCard } from "./components/StatCard";
@@ -77,6 +78,7 @@ export function App() {
   const active =
     (selectedId != null ? R.find((r) => r.id === selectedId) : null) ?? latest;
   const pz = active ? zoneOf(PITCH_ZONES, active.pitch.mean_hz) : null;
+  const pitchGoal = goalOf(PITCH_ZONES);
   const isLatest = active && latest && active.id === latest.id;
 
   const mk = (sel: (r: Recording) => number | null): Point[] =>
@@ -311,11 +313,14 @@ export function App() {
           )}
           <ChartCard
             h="Pitch (avg)"
-            cap="pink band = feminine zone (165 Hz+)"
+            cap={
+              pitchGoal
+                ? `shaded by zone · ${pitchGoal.name} band ${pitchGoal.from} Hz+`
+                : "shaded by zone"
+            }
             color="#e07ab0"
             data={mk((r) => r.pitch.mean_hz)}
-            band={[165, 260]}
-            bandColor="#ffb6d5"
+            bands={PITCH_ZONES}
           />
           <ChartCard
             h="In-register melody"

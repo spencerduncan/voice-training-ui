@@ -10,6 +10,11 @@ export interface Zone {
   to: number;
   color: string;
   name: string;
+  // The band the cheat sheet bolds and the trend captions name as the goal.
+  // Declared here on purpose rather than inferred from the pink colour: not
+  // every table has a goal (weight is own-trend only), and a goal band need
+  // not be the pink one.
+  goal?: boolean;
 }
 
 export const MASC = "#bcd3f0"; // masculine-gendered end ONLY
@@ -22,7 +27,7 @@ export const GROW = "#cdc6da";
 export const PITCH_ZONES: Zone[] = [
   { from: 100, to: 145, color: MASC, name: "masc" },
   { from: 145, to: 165, color: BUTTER, name: "neutral" },
-  { from: 165, to: 260, color: FEM, name: "fem" },
+  { from: 165, to: 260, color: FEM, name: "fem", goal: true },
 ];
 
 // Resonance (formants F2 & F3) — the brightness / vocal-tract-size cue.
@@ -49,13 +54,13 @@ export const PITCH_ZONES: Zone[] = [
 export const F2_ZONES: Zone[] = [
   { from: 1100, to: 1340, color: MASC, name: "deeper" },
   { from: 1340, to: 1420, color: BUTTER, name: "neutral" },
-  { from: 1420, to: 2200, color: FEM, name: "bright" },
+  { from: 1420, to: 2200, color: FEM, name: "bright", goal: true },
 ];
 
 export const F3_ZONES: Zone[] = [
   { from: 2100, to: 2560, color: MASC, name: "deeper" },
   { from: 2560, to: 2700, color: BUTTER, name: "neutral" },
-  { from: 2700, to: 3400, color: FEM, name: "bright" },
+  { from: 2700, to: 3400, color: FEM, name: "bright", goal: true },
 ];
 
 export const LOUD_ZONES: Zone[] = [
@@ -67,7 +72,7 @@ export const LOUD_ZONES: Zone[] = [
 // SD of pitch — how much your melody moves. Higher = more expressive.
 export const SD_ZONES: Zone[] = [
   { from: 0, to: 20, color: GROW, name: "flat" },
-  { from: 20, to: 40, color: BUTTER, name: "natural" },
+  { from: 20, to: 40, color: BUTTER, name: "natural", goal: true },
   { from: 40, to: 80, color: FEM, name: "expressive" },
 ];
 
@@ -75,12 +80,12 @@ export const SD_ZONES: Zone[] = [
 export const HNR_ZONES: Zone[] = [
   { from: 0, to: 10, color: GROW, name: "breathy" },
   { from: 10, to: 18, color: BUTTER, name: "clear-ish" },
-  { from: 18, to: 35, color: FEM, name: "clear" },
+  { from: 18, to: 35, color: FEM, name: "clear", goal: true },
 ];
 
 // Jitter — cycle-to-cycle steadiness. LOWER is better, so steady end is pink.
 export const JITTER_ZONES: Zone[] = [
-  { from: 0, to: 1, color: FEM, name: "steady" },
+  { from: 0, to: 1, color: FEM, name: "steady", goal: true },
   { from: 1, to: 2, color: BUTTER, name: "okay" },
   { from: 2, to: 6, color: GROW, name: "rough" },
 ];
@@ -105,7 +110,7 @@ export const JITTER_ZONES: Zone[] = [
 // `note.weight` slot says this to the user. Only the direction (lower = lighter)
 // is reliable.
 export const WEIGHT_ZONES: Zone[] = [
-  { from: 0, to: 10, color: FEM, name: "light" },
+  { from: 0, to: 10, color: FEM, name: "light", goal: true },
   { from: 10, to: 12.5, color: BUTTER, name: "overlap" },
   { from: 12.5, to: 20, color: MASC, name: "heavy" },
 ];
@@ -115,7 +120,7 @@ export const WEIGHT_ZONES: Zone[] = [
 // lovely take #1 hit ~4 st; her flat takes sit ~1.9–2 st.
 export const MELODY_ZONES: Zone[] = [
   { from: 0, to: 2, color: GROW, name: "flat" },
-  { from: 2, to: 3.5, color: BUTTER, name: "natural" },
+  { from: 2, to: 3.5, color: BUTTER, name: "natural", goal: true },
   { from: 3.5, to: 7, color: FEM, name: "lively" },
 ];
 
@@ -133,6 +138,11 @@ export function zoneOf(zones: Zone[], v: number | null | undefined): Zone | null
   if (v === null || v === undefined) return null;
   if (zones.length && v < zones[0].from) return zones[0];
   return zones.find((z) => v >= z.from && v < z.to) || zones[zones.length - 1];
+}
+
+// The declared goal band of a table, if it has one.
+export function goalOf(zones: Zone[]): Zone | undefined {
+  return zones.find((z) => z.goal);
 }
 
 export function fmt(v: number | null | undefined, unit = ""): string {

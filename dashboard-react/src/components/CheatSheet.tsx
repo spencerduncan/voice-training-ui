@@ -9,7 +9,7 @@ import {
   HNR_ZONES,
   JITTER_ZONES,
   WEIGHT_ZONES,
-  FEM,
+  goalOf,
   type Zone,
 } from "../zones";
 
@@ -27,9 +27,9 @@ function ZoneGuide({
 }: {
   zones: Zone[];
   unit?: string; // literal suffix, incl. its own spacing: " Hz", " dB", "%"
-  highlight?: string; // zone name to bold; defaults to the feminine/goal band
+  highlight?: string; // zone name to bold; defaults to the table's declared goal band
 }) {
-  const goal = highlight ?? zones.find((z) => z.color === FEM)?.name;
+  const goal = highlight ?? goalOf(zones)?.name;
   return (
     <>
       {zones.map((z, i) => {
