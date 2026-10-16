@@ -9,8 +9,7 @@ wheels/
 # Virtual environments
 .venv
 
-# design-sync (staged scripts, build output, machine state) — the whole
-# .design-sync/ tree is local tooling, so ignore it wholesale.
+# design-sync tooling: staged scripts, bundle output, machine state
 .ds-sync/
 ds-bundle/
 .design-sync/
@@ -18,7 +17,7 @@ ds-bundle/
 # Node
 node_modules/
 
-# generated starter package (use make-starter.sh)
+# a packaged starter copy, if you build one
 voice-garden-starter.zip
 
 # reference-build audio cache (regenerate via scripts/build_reference_set.py)

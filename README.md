@@ -1,6 +1,6 @@
 # Voice Garden
 
-![HLdkXJnXwAAVpuS.jpg](HLdkXJnXwAAVpuS.jpg)
+![The Voice Garden dashboard: the tulip header, the Record a take panel, and the latest take's pitch, loudness, clarity, steadiness and weight cards, each with a pastel zone bar. The take shown is a demo made from a VCTK reference voice.](docs/dashboard.jpg)
 
 This is the only part of this repo that is primarily written by a human!! I am warning you this because I think AI disclosure is important.
 
@@ -14,7 +14,7 @@ For best results, I recommend that you read the same passage with a similar micr
 
 Open your coding agent of choice and ask it to read CLAUDE.md. It will give you a summary of how to use this application and work with you to analyze your voice.
 
-If you don't know what a coding agent is or how to do this, DM me. I will see about packaging it for you in an easier format, but it will be less useful as I will have to remove the AI features.
+If you don't know what a coding agent is or how to do this, [open an issue](https://github.com/spencerduncan/voice-training-ui/issues). I will see about packaging it for you in an easier format, but it will be less useful as I will have to remove the AI features.
 
 ## Setup
 
