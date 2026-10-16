@@ -133,15 +133,27 @@ PHRASE_MIN_VOICED = 20
 # In-register melody SD is only reported when enough clean frames survive.
 MELODY_MIN_FRAMES = 50
 MELODY_MIN_SHARE = 0.3
-# Frames above this multiple of the median are octave-up tracking errors.
+# Octave-error cleanup for pitch extremes / melody: frames above OCTAVE_UP_RATIO
+# or below OCTAVE_DOWN_RATIO x the take median are tracker jumps (or halved,
+# creaky periods), not the speaker's pitch.
 OCTAVE_UP_RATIO = 1.8
+OCTAVE_DOWN_RATIO = 0.55
+# Vocal weight (spectral_weight): frames under WEIGHT_MIN_F0 are skipped (harmonics
+# too close to pick H1 cleanly); null below MIN_WEIGHT_FRAMES usable frames; very
+# long takes use an evenly spaced WEIGHT_MAX_FRAMES of the gated frames.
+WEIGHT_MIN_F0 = 100.0
+MIN_WEIGHT_FRAMES = 20
+WEIGHT_MAX_FRAMES = 600
 
 
 def clean(value: float | None) -> float | None:
-    """Round and convert NaN/inf to None so it serializes cleanly to JSON."""
+    """Round and convert NaN/inf — and Praat's <= -300 dB "no signal" sentinel —
+    to None so it serializes cleanly to JSON."""
     if value is None:
         return None
     if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return None
+    if value <= -300:
         return None
     return round(float(value), 2)
 
@@ -241,121 +253,133 @@ def _harmonic_db(spec_freqs: np.ndarray, spec_db: np.ndarray, target_hz: float,
     if not mask.any():
         return None
     vals = spec_db[mask]
-    peak = float(np.max(vals))
+    # spec_db is NaN in zero-power bins; np.max would let one such bin void the
+    # whole window, so take the max over the finite bins.
+    if np.all(np.isnan(vals)):
+        return None
+    peak = float(np.nanmax(vals))
     if math.isnan(peak) or math.isinf(peak):
         return None
     return peak
 
 
+def _frame_h1a3(sound: parselmouth.Sound, t: float, f0: float,
+                formant: parselmouth.Formant) -> tuple[float, float] | None:
+    """(corrected H1*-A3*, uncorrected H1-A3) in dB for one frame, or None."""
+    fs = sound.sampling_frequency
+    # Narrowband windowed spectrum around this frame (>=3 pitch periods for
+    # frequency resolution to separate harmonics).
+    win = max(0.025, 3.0 / f0)
+    t0, t1 = t - win / 2, t + win / 2
+    if t0 < 0 or t1 > sound.xmax:
+        return None
+    try:
+        seg = sound.extract_part(t0, t1, parselmouth.WindowShape.HAMMING, 1.0, False)
+        spec = seg.to_spectrum()  # parselmouth obj; read bins as numpy below
+    except parselmouth.PraatError:
+        return None
+    vals = spec.values  # shape (2, n_bins): row 0 real, row 1 imag — one shot
+    power = vals[0] ** 2 + vals[1] ** 2
+    freqs = np.asarray(spec.xs())
+    with np.errstate(divide="ignore"):
+        spec_db = 10.0 * np.log10(np.where(power > 0, power, np.nan))
+
+    # Formants + bandwidths at this frame (same Formant object as the formants).
+    fb: dict[int, tuple[float, float]] = {}
+    for n in (1, 2, 3):
+        fn = formant.get_value_at_time(n, t)
+        bn = formant.get_bandwidth_at_time(n, t)
+        if math.isnan(fn) or math.isnan(bn) or fn <= 0 or bn <= 0:
+            return None
+        fb[n] = (fn, bn)
+
+    h1 = _harmonic_db(freqs, spec_db, f0, f0)
+    k3 = max(1, round(fb[3][0] / f0))  # A3 = harmonic nearest F3
+    a3 = _harmonic_db(freqs, spec_db, k3 * f0, f0)
+    if h1 is None or a3 is None:
+        return None
+    # Iseli–Alwan correction: subtract each formant's boost at the harmonic
+    # frequency to recover the source amplitude, for H1 and A3 alike.
+    h1_corr, a3_corr = h1, a3
+    for fn, bn in fb.values():
+        h1_corr -= _iseli_correction(f0, fn, bn, fs)
+        a3_corr -= _iseli_correction(k3 * f0, fn, bn, fs)
+    out = (h1_corr - a3_corr, h1 - a3)
+    if not all(math.isfinite(v) for v in out):
+        return None
+    return out
+
+
 def spectral_weight(sound: parselmouth.Sound,
                     pitch: parselmouth.Pitch | None = None,
-                    formant: parselmouth.Formant | None = None) -> dict:
+                    formant: parselmouth.Formant | None = None,
+                    nuclei: dict[str, np.ndarray] | None = None,
+                    intensity: parselmouth.Intensity | None = None) -> dict:
     """Vocal *weight* via **corrected H1*–A3*** — the Iseli–Alwan (2007) source
     spectral-tilt measure (as used in VoiceSauce).
 
-    Operates ONLY on voiced frames (gated by the pitch track — no consonants or
-    silence). Per voiced frame we measure, from a windowed narrowband FFT:
-      - H1 = amplitude (dB) of the harmonic nearest F0,
+    Per frame, from a windowed narrowband FFT:
+      - H1 = amplitude (dB) of the harmonic at F0,
       - A3 = amplitude (dB) of the harmonic nearest F3,
-    then **formant-correct** both with the Iseli–Alwan vocal-tract model (each of
-    F1–F3 treated as a pole with its bandwidth; we subtract the formant boost so
-    we recover the *source* amplitude). This is the crucial difference from a raw
-    alpha ratio, which just re-measures resonance (the filter). Praat's
-    `To Formant (burg)` supplies F1–F3 + bandwidths per frame.
+    each **formant-corrected** with the Iseli–Alwan vocal-tract model (F1–F3 as
+    poles with their bandwidths; we subtract each formant's boost so we recover
+    the *source* amplitude). That correction is the difference from a raw alpha
+    ratio, which just re-measures resonance (the filter).
 
-    The headline value is mean **corrected H1*–A3*** over voiced frames (dB).
-    Larger H1*–A3* = steeper source roll-off = LIGHTER (more feminine); smaller
-    (flatter) = HEAVIER. (Opposite direction from the old alpha ratio.)
+    What the number says: h1a3c_db = H1* minus A3*. **Larger = more of the
+    source's energy at the fundamental relative to the F3 region, i.e. a
+    steeper source spectral roll-off; smaller = a flatter roll-off** (relatively
+    more high-frequency source energy). The sign is unchanged from earlier
+    versions.
 
-    `pitch` and `formant` may be handed in by a caller that already built them
-    with these exact parameters (analyze() does) — same objects, same values,
-    one less Pitch and one less Formant pass per run.
+    What it does NOT say: which direction is "lighter" or more feminine. That is
+    **not validated** here. On the 21 VCTK reference voices the 4 men come out
+    *higher* (steeper) than the 17 women — the opposite of the usual
+    expectation that women's voices roll off more steeply — and four men cannot
+    settle a direction either way. Treat it as the speaker's own trend, not a
+    gender scale.
+
+    Frames: the vowel nuclei the formants are read from (vowel_nuclei(), same
+    Formant object and ceiling), minus creaky / period-halved frames (F0 below
+    CREAK_F0_RATIO x the take's median F0) and frames under WEIGHT_MIN_F0, where
+    harmonics sit too close together to pick H1 cleanly. Those exclusions
+    matter: reference woman p294's old voiced-frame mean was 6.2 dB with her
+    creak frames and 12.1 dB without them.
+    The headline is the **median** over frames, with their SD and count beside
+    it; fewer than MIN_WEIGHT_FRAMES usable frames gives null.
+
+    `pitch`, `formant`, `nuclei` and `intensity` may be handed in by analyze(),
+    which already built them; anything missing is built here at the default
+    settings.
 
     Returns:
-      - h1a3c_db: mean corrected H1*–A3* over voiced frames (the headline).
-      - h1a3_db:  mean UNcorrected H1–A3 over voiced frames (cheap secondary).
+      - h1a3c_db: median corrected H1*–A3* over the gated frames (the headline).
+      - h1a3c_sd_db: SD of the per-frame values (how steady the measure is).
+      - n_frames: how many frames went into it.
+      - h1a3_db: median UNcorrected H1–A3 over the same frames (secondary).
       - tilt_db_khz: LTAS regression slope (dB/kHz), kept as a legacy secondary.
     """
-    fs = sound.sampling_frequency
-    dur = sound.get_total_duration()
     if pitch is None:
         pitch = call(sound, "To Pitch", 0.0, PITCH_FLOOR, PITCH_CEILING)
     if formant is None:
         formant = call(sound, "To Formant (burg)", 0.0, 5, FORMANT_CEILING, 0.025, 50)
+    if nuclei is None:
+        nuclei = vowel_nuclei(sound, pitch, intensity or _intensity(sound), formant)
 
-    # Voiced frames: pull the whole F0 track in one numpy shot (no per-frame
-    # Praat round-trips), then subsample so cost is bounded on long recordings —
-    # an averaged source-tilt measure is stable over a few hundred frames.
-    f0s = pitch.selected_array["frequency"]
-    ts = pitch.xs()
-    voiced = [(float(t), float(f)) for t, f in zip(ts, f0s) if f > 0]
-    max_frames = 250
-    if len(voiced) > max_frames:
-        step = len(voiced) / max_frames
-        voiced = [voiced[int(i * step)] for i in range(max_frames)]
+    f0_all = pitch.selected_array["frequency"]
+    median = float(np.median(f0_all[f0_all > 0])) if (f0_all > 0).any() else 0.0
+    keep = (nuclei["f0"] >= CREAK_F0_RATIO * median) & (nuclei["f0"] >= WEIGHT_MIN_F0)
+    frames = list(zip(nuclei["t"][keep].tolist(), nuclei["f0"][keep].tolist()))
+    # Cost bound for very long takes: an evenly spaced subset of the gated
+    # frames (after gating, so it can't change which kind of frame is used).
+    if len(frames) > WEIGHT_MAX_FRAMES:
+        step = len(frames) / WEIGHT_MAX_FRAMES
+        frames = [frames[int(i * step)] for i in range(WEIGHT_MAX_FRAMES)]
 
-    h1a3c_vals: list[float] = []
-    h1a3_vals: list[float] = []
-
-    for t, f0 in voiced:
-        # Narrowband windowed spectrum around this frame (>=3 pitch periods for
-        # frequency resolution to separate harmonics).
-        win = max(0.025, 3.0 / f0)
-        t0 = t - win / 2
-        t1 = t + win / 2
-        if t0 < 0 or t1 > dur:
-            continue
-        try:
-            seg = sound.extract_part(t0, t1, parselmouth.WindowShape.HAMMING, 1.0, False)
-            spec = seg.to_spectrum()  # parselmouth obj; read bins as numpy below
-        except Exception:
-            continue
-        vals = spec.values  # shape (2, n_bins): row 0 real, row 1 imag — one shot
-        power = vals[0] ** 2 + vals[1] ** 2
-        freqs = np.asarray(spec.xs())
-        with np.errstate(divide="ignore"):
-            spec_db = 10.0 * np.log10(np.where(power > 0, power, np.nan))
-
-        # Formants + bandwidths at this frame.
-        fb: dict[int, tuple[float, float]] = {}
-        ok = True
-        for n in (1, 2, 3):
-            fn = call(formant, "Get value at time", n, t, "Hertz", "Linear")
-            bn = call(formant, "Get bandwidth at time", n, t, "Hertz", "Linear")
-            if math.isnan(fn) or math.isnan(bn) or fn <= 0 or bn <= 0:
-                ok = False
-                break
-            fb[n] = (fn, bn)
-        if not ok:
-            continue
-
-        h1 = _harmonic_db(freqs, spec_db, f0, f0)
-        # A3 = harmonic nearest F3.
-        f3 = fb[3][0]
-        k3 = max(1, round(f3 / f0))
-        a3 = _harmonic_db(freqs, spec_db, k3 * f0, f0)
-        if h1 is None or a3 is None:
-            continue
-
-        # Iseli–Alwan correction: subtract each formant's boost at the harmonic
-        # frequency to recover the source amplitude. H1 is near F0 → correct it
-        # against all three poles; A3 sits at F3 → correct against all three too.
-        h1_corr = h1
-        a3_corr = a3
-        for n in (1, 2, 3):
-            fn, bn = fb[n]
-            h1_corr -= _iseli_correction(f0, fn, bn, fs)
-            a3_corr -= _iseli_correction(k3 * f0, fn, bn, fs)
-
-        h1a3c = h1_corr - a3_corr
-        h1a3 = h1 - a3
-        if not (math.isnan(h1a3c) or math.isinf(h1a3c)):
-            h1a3c_vals.append(h1a3c)
-        if not (math.isnan(h1a3) or math.isinf(h1a3)):
-            h1a3_vals.append(h1a3)
-
-    h1a3c = float(np.mean(h1a3c_vals)) if h1a3c_vals else None
-    h1a3 = float(np.mean(h1a3_vals)) if h1a3_vals else None
+    measured = [m for t, f0 in frames if (m := _frame_h1a3(sound, t, f0, formant)) is not None]
+    h1a3c_vals = [m[0] for m in measured]
+    h1a3_vals = [m[1] for m in measured]
+    ok = len(measured) >= MIN_WEIGHT_FRAMES
 
     # Legacy LTAS tilt, kept as a cheap secondary.
     tilt = None
@@ -370,12 +394,14 @@ def spectral_weight(sound: parselmouth.Sound,
                 vals_l.append(v)
         if len(freqs_l) >= 4:
             tilt = float(np.polyfit(np.array(freqs_l), np.array(vals_l), 1)[0] * 1000.0)
-    except Exception:
+    except parselmouth.PraatError:
         tilt = None
 
     return {
-        "h1a3c_db": clean(h1a3c),
-        "h1a3_db": clean(h1a3),
+        "h1a3c_db": clean(float(np.median(h1a3c_vals))) if ok else None,
+        "h1a3c_sd_db": clean(float(np.std(h1a3c_vals, ddof=1))) if ok else None,
+        "n_frames": len(measured),
+        "h1a3_db": clean(float(np.median(h1a3_vals))) if ok else None,
         "tilt_db_khz": clean(tilt),
     }
 
@@ -487,16 +513,31 @@ def analyze(sound: parselmouth.Sound,
     formant = call(sound, "To Formant (burg)", 0.0, 5, formant_ceiling, 0.025, 50)
     if intensity is None:
         intensity = _intensity(sound)
+    f0_track = pitch.selected_array["frequency"]
+    voiced = f0_track > 0
+    voiced_f0 = f0_track[voiced]
 
     # ---- Pitch (F0) -------------------------------------------------------
     mean_f0 = call(pitch, "Get mean", 0, 0, "Hertz")
-    min_f0 = call(pitch, "Get minimum", 0, 0, "Hertz", "Parabolic")
-    max_f0 = call(pitch, "Get maximum", 0, 0, "Hertz", "Parabolic")
     sd_f0 = call(pitch, "Get standard deviation", 0, 0, "Hertz")
     median_f0 = call(pitch, "Get quantile", 0, 0, 0.5, "Hertz")
+    # Extremes: the 5th/95th percentiles of the voiced track once octave errors
+    # (frames above OCTAVE_UP_RATIO or below OCTAVE_DOWN_RATIO x the median)
+    # and creak runs (creak_frames(), the register model's rule) are dropped —
+    # not the raw min/max, which one tracker octave jump or one creaky frame
+    # decides. min_hz/max_hz/range_hz carry these same values.
+    p5 = p95 = None
+    if len(voiced_f0):
+        med = float(np.median(voiced_f0))
+        kept = (voiced & ~creak_frames(pitch, med)
+                & (f0_track <= OCTAVE_UP_RATIO * med) & (f0_track >= OCTAVE_DOWN_RATIO * med))
+        if kept.any():
+            p5, p95 = (float(v) for v in np.percentile(f0_track[kept], [5, 95]))
 
-    # ---- Formants (resonance): vowel-nucleus-targeted median (F2/F3 focus) -
-    formants = vowel_formants(sound, pitch, intensity, formant, formant_ceiling)
+    # ---- Formants (resonance) + weight: both read the same vowel nuclei ----
+    nuclei = vowel_nuclei(sound, pitch, intensity, formant)
+    formants = vowel_formants(sound, pitch, ceiling=formant_ceiling, nuclei=nuclei)
+    weight = spectral_weight(sound, pitch, formant, nuclei)
 
     # ---- Voice quality: HNR, jitter, shimmer -----------------------------
     harmonicity = call(sound, "To Harmonicity (cc)", 0.01, PITCH_FLOOR, 0.1, 1.0)
@@ -509,19 +550,27 @@ def analyze(sound: parselmouth.Sound,
     )
 
     # ---- Intensity (loudness) — directly relevant to "be louder" ---------
-    mean_int = call(intensity, "Get mean", 0, 0, "energy")
-    min_int = call(intensity, "Get minimum", 0, 0, "Parabolic")
-    max_int = call(intensity, "Get maximum", 0, 0, "Parabolic")
+    # Over voiced frames only: the level of the voice, not of the room. The
+    # take-wide mean folded in every pause (so more silence = "quieter"), and
+    # the take-wide minimum was Praat's -300 dB digital-silence sentinel.
+    level = np.interp(np.asarray(pitch.xs())[voiced], intensity.xs(), intensity.values[0])
+    level = level[level > -200.0]
+    mean_int = min_int = max_int = None
+    if len(level):
+        mean_int = 10.0 * math.log10(float(np.mean(10.0 ** (level / 10.0))))  # energy mean
+        min_int, max_int = float(level.min()), float(level.max())
 
     return {
         "duration_s": clean(duration),
         "pitch": {
             "mean_hz": clean(mean_f0),
             "median_hz": clean(median_f0),
-            "min_hz": clean(min_f0),
-            "max_hz": clean(max_f0),
-            "range_hz": clean(max_f0 - min_f0) if not (math.isnan(min_f0) or math.isnan(max_f0)) else None,
+            "min_hz": clean(p5),
+            "max_hz": clean(p95),
+            "range_hz": clean(p95 - p5) if p5 is not None and p95 is not None else None,
             "sd_hz": clean(sd_f0),
+            "p5_hz": clean(p5),
+            "p95_hz": clean(p95),
         },
         "formants": formants,
         "voice_quality": {
@@ -534,7 +583,7 @@ def analyze(sound: parselmouth.Sound,
             "min_db": clean(min_int),
             "max_db": clean(max_int),
         },
-        "weight": spectral_weight(sound, pitch, formant),
+        "weight": weight,
     }
 
 
