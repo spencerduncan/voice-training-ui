@@ -112,7 +112,16 @@ export function MetricModal({
     const card = cardRef.current;
     const prevFocused = document.activeElement as HTMLElement | null;
     const prevOverflow = document.body.style.overflow;
+    const prevPadRight = document.body.style.paddingRight;
 
+    // Hiding the page scrollbar widens the layout by its width, which nudged
+    // the centred page sideways under the backdrop. Pad the body by the same
+    // amount so nothing moves (overlay scrollbars measure 0 and skip this).
+    const scrollbar = window.innerWidth - document.documentElement.clientWidth;
+    if (scrollbar > 0) {
+      const pad = parseFloat(getComputedStyle(document.body).paddingRight) || 0;
+      document.body.style.paddingRight = `${pad + scrollbar}px`;
+    }
     document.body.style.overflow = "hidden";
     card?.focus();
 
@@ -156,6 +165,7 @@ export function MetricModal({
     return () => {
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
+      document.body.style.paddingRight = prevPadRight;
       // the trigger card may have been unmounted (e.g. take switched) — only
       // hand focus back if it's still on the page
       if (prevFocused && document.contains(prevFocused)) prevFocused.focus();

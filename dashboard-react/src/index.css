@@ -272,15 +272,32 @@ section {
   grid-template-columns: 1fr;
   gap: 14px;
 }
-/* click-to-select wrapper around each recording card (keyboard-operable, so it
-   needs a visible ring of its own — .rec draws the card itself) */
+/* click-to-select wrapper around each recording card (a mouse convenience —
+   the keyboard path is the .rec-pick button on the card's number + label) */
 .rec-select {
   cursor: pointer;
   border-radius: var(--radius);
 }
-.rec-select:focus-visible {
+.rec-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+button.rec-pick {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 2px 6px 2px 2px;
+  margin: -2px -6px -2px -2px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+button.rec-pick:focus-visible {
   outline: var(--focus-ring);
-  outline-offset: 3px;
+  outline-offset: 2px;
 }
 /* inside the player the cursor belongs to the player's own controls */
 .rec-select .player {

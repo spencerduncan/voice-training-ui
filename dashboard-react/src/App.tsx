@@ -400,12 +400,13 @@ export function App() {
   );
 }
 
-// Wrapper that makes an "All recordings" card click-to-select *and* reachable
-// from the keyboard. The card contains a whole WaveformPlayer (play button,
-// seekable waveform, volume slider, download link), so a naked onClick meant
-// scrubbing take #2's waveform or nudging its volume also switched the entire
-// dashboard onto take #2. Any interaction that starts inside the player is
-// therefore left alone; everything else selects.
+// Wrapper that makes an "All recordings" card click-to-select. The keyboard /
+// screen-reader path is the real <button> on the card's number + label (see
+// RecordingCard); this wrapper only adds a bigger mouse target, so it carries
+// no role or tabindex and never nests one control inside another. The card
+// contains a whole WaveformPlayer (play button, seekable waveform, volume
+// slider, download link), so any press that starts inside the player is left
+// alone; otherwise scrubbing take #2 would switch the dashboard onto take #2.
 function SelectableRecording({
   r,
   current,
@@ -417,17 +418,14 @@ function SelectableRecording({
 }) {
   // a drag on the volume slider or the waveform can release elsewhere and still
   // land a click on this wrapper, so remember where the press actually began
+  // (the select button handles its own clicks, so skip those here too)
   const startedInPlayer = useRef(false);
   const inPlayer = (t: EventTarget | null) =>
-    t instanceof Element && t.closest(".player") != null;
+    t instanceof Element && t.closest(".player, .rec-pick") != null;
 
   return (
     <div
       className="rec-select"
-      role="button"
-      tabIndex={0}
-      aria-current={current ? "true" : undefined}
-      aria-label={`Show take ${r.id} (${r.label}) in the sections above`}
       title="click to view this take above"
       onPointerDownCapture={(e) => {
         startedInPlayer.current = inPlayer(e.target);
@@ -436,15 +434,8 @@ function SelectableRecording({
         if (startedInPlayer.current || inPlayer(e.target)) return;
         onSelect();
       }}
-      onKeyDown={(e) => {
-        if (e.key !== "Enter" && e.key !== " ") return;
-        // let the play button / slider / download link keep their own keys
-        if (inPlayer(e.target)) return;
-        e.preventDefault();
-        onSelect();
-      }}
     >
-      <RecordingCard r={r} />
+      <RecordingCard r={r} current={current} onSelect={onSelect} />
     </div>
   );
 }

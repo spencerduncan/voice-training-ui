@@ -2,14 +2,38 @@ import type { Recording } from "../types";
 import { fmt } from "../zones";
 import { WaveformPlayer } from "./WaveformPlayer";
 
-export function RecordingCard({ r }: { r: Recording }) {
+interface Props {
+  r: Recording;
+  // When given, the take's number + label become a real <button> that selects
+  // this take. It sits beside the player rather than wrapping it, so no
+  // interactive control is nested inside another.
+  onSelect?: () => void;
+  current?: boolean;
+}
+
+export function RecordingCard({ r, onSelect, current }: Props) {
+  const heading = (
+    <>
+      <span className="num">{r.id}</span>
+      <span className="label-txt">{r.label}</span>
+    </>
+  );
   return (
     <div className="rec">
       <div className="top">
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span className="num">{r.id}</span>
-          <span className="label-txt">{r.label}</span>
-        </div>
+        {onSelect ? (
+          <button
+            type="button"
+            className="rec-pick"
+            onClick={onSelect}
+            aria-current={current ? "true" : undefined}
+            aria-label={`Show take ${r.id} (${r.label}) in the sections above`}
+          >
+            {heading}
+          </button>
+        ) : (
+          <div className="rec-pick">{heading}</div>
+        )}
         <span className="date">
           {r.date} · {fmt(r.duration_s, "s")}
         </span>
