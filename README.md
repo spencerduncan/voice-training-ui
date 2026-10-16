@@ -16,6 +16,18 @@ Open your coding agent of choice and ask it to read CLAUDE.md. It will give you 
 
 If you don't know what a coding agent is or how to do this, DM me. I will see about packaging it for you in an easier format, but it will be less useful as I will have to remove the AI features.
 
+## Your recordings stay on your machine 🌷
+
+`dashboard-react/public/audio/` and `dashboard-react/public/analysis/` ship **empty on purpose** — only a `.gitkeep` placeholder is in each. Those two folders and `recordings.json` are gitignored, so your takes and their measurements stay local and won't ride along if you commit or push this repo.
+
+One caveat if you cloned rather than downloaded: `recordings.json` and its `dashboard-react/public/` mirror are tracked as empty `[]` starters, and git keeps following a file once it's tracked — gitignore only applies to files git isn't already watching. So the log of your takes (labels, notes, numbers — not the audio) can still land in a commit. If you'd rather git forgot those two files entirely, run this once:
+
+```
+git rm --cached recordings.json dashboard-react/public/recordings.json
+```
+
+That leaves both files exactly where they are on disk; it only tells git to stop watching them. Your audio and analysis files are ignored either way.
+
 ## License
 
 All code and content I wrote — `analyze.py`, the React dashboard, the Claude Code skill, and the docs — is licensed under the **MIT License** (see `LICENSE`).

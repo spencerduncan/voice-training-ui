@@ -23,8 +23,9 @@ weaknesses, always actionable and kind.
 
 ## Step 1 — Run the standard analyzer
 
+From the repo root (wherever this checkout lives):
+
 ```fish
-cd /Users/rachel/Downloads/voice-training
 uv run analyze.py "<path to audio>" --label "<what she was practicing>" [--note "..."] [--register-floor 130]
 ```
 
@@ -97,7 +98,7 @@ are in `../../zones`.
 ## Step 5 — Verify
 
 ```fish
-cd /Users/rachel/Downloads/voice-training/dashboard-react
+cd dashboard-react     # from the repo root
 npm run build          # must pass (tsc -b && vite build)
 ```
 `npm run dev` (http://localhost:5173/) hot-reloads new entries and re-fetches data on refresh.

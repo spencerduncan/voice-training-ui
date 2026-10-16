@@ -27,3 +27,14 @@ voice-garden-starter.zip
 
 # reference-build audio cache (regenerate via scripts/build_reference_set.py)
 .refcache/
+
+# ── Your recordings stay yours 🌷 ──────────────────────────────────────────
+# Voice takes, their analyses, and the log that indexes them are personal data.
+# The starter ships these folders empty on purpose — only the .gitkeep
+# placeholders are tracked — so nothing you record can ride along in a commit.
+dashboard-react/public/audio/*
+!dashboard-react/public/audio/.gitkeep
+dashboard-react/public/analysis/*
+!dashboard-react/public/analysis/.gitkeep
+# matches both the root source-of-truth and the dashboard-react/public mirror
+recordings.json
