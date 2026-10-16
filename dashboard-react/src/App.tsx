@@ -134,7 +134,8 @@ export function App() {
   const isLatest = active && latest && active.id === latest.id;
 
   const mk = (sel: (r: Recording) => number | null): Point[] =>
-    R.map((r) => ({ label: r.id, y: sel(r) }));
+    R.map((r) => ({ id: r.id, date: r.date, y: sel(r) }));
+  const activeId = active?.id ?? null;
 
   return (
     <div className="wrap">
@@ -435,6 +436,8 @@ export function App() {
           )}
           <ChartCard
             h="Pitch (avg)"
+            unit="Hz"
+            activeId={activeId}
             cap={
               pitchGoal
                 ? `shaded by zone · ${pitchGoal.name} band ${pitchGoal.from} Hz+`
@@ -446,6 +449,8 @@ export function App() {
           />
           <ChartCard
             h="In-register melody"
+            unit="st"
+            activeId={activeId}
             cap="pitch movement in semitones, over steady in-register speech"
             color="#9b7ad0"
             data={mk((r) => r.register?.in_register_semitones_sd ?? null)}
@@ -453,6 +458,8 @@ export function App() {
           />
           <ChartCard
             h="Endings that held"
+            unit="%" percent
+            activeId={activeId}
             cap="% of phrase endings that stayed up in register"
             color="#5fb89a"
             data={mk((r) => r.register?.phrases_landed_pct ?? null)}
@@ -461,6 +468,8 @@ export function App() {
           />
           <ChartCard
             h="Resonance (F2)"
+            unit="Hz"
+            activeId={activeId}
             cap="brightness / vocal-tract size cue"
             color="#d99a4e"
             data={mk((r) => r.formants.f2_hz)}
@@ -468,6 +477,8 @@ export function App() {
           />
           <ChartCard
             h="Weight"
+            unit="dB"
+            activeId={activeId}
             cap={`spectral tilt · ${WEIGHT_DIRECTION}`}
             color="#8d7ba3" /* neutral lavender-grey: weight carries no pink/blue meaning */
             data={mk((r) => r.weight?.h1a3c_db ?? null)}
@@ -555,9 +566,23 @@ interface ChartCardProps {
   band?: [number, number];
   bandColor?: string;
   bands?: ChartBand[];
+  unit?: string;
+  percent?: boolean;
+  activeId?: number | null;
 }
 
-function ChartCard({ h, cap, color, data, band, bandColor, bands }: ChartCardProps) {
+function ChartCard({
+  h,
+  cap,
+  color,
+  data,
+  band,
+  bandColor,
+  bands,
+  unit,
+  percent,
+  activeId,
+}: ChartCardProps) {
   return (
     <div className="chart-card">
       <h3>{h}</h3>
@@ -568,6 +593,9 @@ function ChartCard({ h, cap, color, data, band, bandColor, bands }: ChartCardPro
         band={band}
         bandColor={bandColor}
         bands={bands}
+        unit={unit}
+        percent={percent}
+        activeId={activeId}
       />
     </div>
   );

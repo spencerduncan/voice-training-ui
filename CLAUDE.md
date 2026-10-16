@@ -199,9 +199,14 @@ many audio samples as reference points** — instantly answering "where do I sit
 - **Rachel's takes** (#1–#N) as prominent rose dots, each at its true value, with a `#label`
   and a thin dashed **guide line** straight down to the bar. When dots cluster, labels are
   bumped up into **stacked lanes** (greedy `assignLanes`) so they never overlap; the guide
-  keeps each anchored. The currently-selected take is highlighted pink + enlarged.
+  keeps each anchored. Lanes are **capped at 4**: past that, only the active take and the
+  latest 5 keep their `#label` (the rest are bare dots, still clickable and labelled for
+  screen readers) and dots may share a lane. The currently-selected take is highlighted pink
+  + enlarged.
 - **Web reference voices** as smaller **pink (female `FEM`) / blue (male `MASC`)** ticks below
-  the bar — STRICT color rule. Shown only on **gendered** metrics whose reference numbers are
+  the bar — STRICT color rule — with **shape as a second channel** (round head = woman,
+  square head = man; the legend keys match) and the gender in each tick's `aria-label`. Each
+  tick has a ≥ 14 px hit area; ticks closer than that stack into rows (up to 4). Shown only on **gendered** metrics whose reference numbers are
   comparable (`showRefs: true` → Pitch today). F2/F3 are gendered but sit out
   (`showRefs: false` + a `refNote` legend line, "reference voices are being re-measured with the
   current analyzer") until `reference.json` is rebuilt with the current formant pipeline — flip
@@ -212,7 +217,9 @@ many audio samples as reference points** — instantly answering "where do I sit
 
 **Click a dot or a reference tick → a `WaveformPlayer` opens below the scale** and plays that
 clip (take audio or the reference's preview). Click the same one again (or its ✕) to close it.
-Dismiss the modal via click-outside, Esc, or its ✕.
+Dismiss the modal via click-outside, Esc, or its ✕. The card is capped at
+`calc(100dvh - 40px)` and scrolls inside itself on short screens, and it grows out of the
+clicked card (its `transform-origin` is computed relative to its own box on open).
 
 **Plumbing:**
 - `src/metrics.ts` — the **metric registry** (`METRICS`, keyed by `MetricKey`). Each
