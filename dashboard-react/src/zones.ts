@@ -24,6 +24,19 @@ export const BUTTER = "#ffe9a8"; // neutral / mid
 // masculine-gendered ends only, never for generic "needs work").
 export const GROW = "#cdc6da";
 
+// Pitch-contour stroke colours, one per register frame state (ContourChart and
+// its legend). Strokes sit on the pale card, so in-register / drop use the
+// deeper palette siblings; the dip and creak lines lean on their fill colours
+// plus a dash pattern (creak) as a second channel.
+//   in register → pink · brief dip → butter · sustained drop → masc blue (the
+//   ONLY blue: a sustained drop is masculine register) · creak → GROW grey
+export const CONTOUR = {
+  inRegister: "#e07ab0",
+  dip: "#ffd27a",
+  crash: "#5e7fb8",
+  creak: GROW,
+} as const;
+
 export const PITCH_ZONES: Zone[] = [
   { from: 100, to: 145, color: MASC, name: "masc" },
   { from: 145, to: 165, color: BUTTER, name: "neutral" },
@@ -141,19 +154,23 @@ export const JITTER_ZONES: Zone[] = [
 //     female reference ticks in the modal (`showRefs: false` in metrics.ts).
 //
 // The cut points are only there to give the bar some texture; they are not
-// targets. Every UI sentence about direction reads WEIGHT_DIRECTION, so if the
-// validation work settles the sign the other way, it changes in one place.
-export const WEIGHT_DIRECTION = "lower = lighter and airier, higher = heavier";
+// targets, and the band names say only "lower / mid / higher" — not "lighter"
+// or "heavier", since which end is lighter is exactly what isn't settled.
+// Every UI sentence about direction reads WEIGHT_DIRECTION, so once validation
+// settles it, the wording changes in one place.
+export const WEIGHT_DIRECTION =
+  "lower or higher is not yet validated as a feminine cue; watch your own trend";
 
 export const WEIGHT_ZONES: Zone[] = [
-  { from: 0, to: 10, color: GROW, name: "lighter" },
+  { from: 0, to: 10, color: GROW, name: "lower" },
   { from: 10, to: 12.5, color: BUTTER, name: "mid" },
-  { from: 12.5, to: 20, color: GROW, name: "heavier" },
+  { from: 12.5, to: 20, color: GROW, name: "higher" },
 ];
 
-// In-register melody (semitones SD, register crashes removed). Expressiveness,
-// NOT a gendered cue — so no blue. flat = room to grow, lively = good. Rachel's
-// lovely take #1 hit ~4 st; her flat takes sit ~1.9–2 st.
+// In-register melody (semitones SD over steady in-register speech: creak,
+// sustained drops and octave jumps removed). Expressiveness, NOT a gendered
+// cue — so no blue. flat = room to grow, lively = good. Can be null when too
+// little steady speech survived; never draw a zone for a null.
 export const MELODY_ZONES: Zone[] = [
   { from: 0, to: 2, color: GROW, name: "flat" },
   { from: 2, to: 3.5, color: BUTTER, name: "natural", goal: true },

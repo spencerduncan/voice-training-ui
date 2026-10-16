@@ -142,8 +142,9 @@ emoji pass through untouched, so the set grows one emoji at a time.
   *string* leaves, so it's safe to wrap arbitrary JSX (bold tags, nested elements survive).
 - **Where it's active:** baked into the reusable prose components **`InsightCard`** and
   **`Drill`** (so any emoji authored inside an insight/drill auto-converts — authors touch
-  nothing), and applied inline as `<RichText>…</RichText>` in `RegisterSection`'s register note
-  and `CheatSheet`. The section/hero headings do **not** use this — they use the dedicated
+  nothing), applied by **`<Note>` and `<Region>` themselves** (so every woven note and every
+  authored slot converts, default or override), and inline as `<RichText>…</RichText>` in
+  `CheatSheet`. The section/hero headings do **not** use this — they use the dedicated
   `icons.tsx` components directly.
 - **To use it (author):** just type the emoji inside RichText-covered prose. To cover a new
   prose spot, wrap it with `<RichText>`.
@@ -164,9 +165,11 @@ voice shape.
 
 - **`src/components/WaveformPlayer.tsx`** — uses `@wavesurfer/react`'s `WavesurferPlayer`
   component. **Generic props** `{ src, duration?, downloadName? }` (not a `Recording`), so it
-  plays *any* clip — Rachel's takes **and** the reference voices. Rendered by `RecordingCard`
-  (`<WaveformPlayer src={r.audio} duration={r.duration_s} downloadName={…} />`) and by the
-  **reference-comparison modal** (see its section below). An `audioBus` module singleton keeps
+  plays *any* clip — Rachel's takes **and** the reference voices. Recording cards use
+  **`LazyWaveformPlayer`**: the same pill with a placeholder wave, which mounts the real
+  player (and starts playing, handing it focus) only on the first tap — so the page doesn't
+  fetch and decode every take's audio up front. The **reference-comparison modal** (see its
+  section below) mounts `WaveformPlayer` directly when a dot or tick is clicked. An `audioBus` module singleton keeps
   only one player playing at a time across the whole app.
 - **Layout:** a soft `lav-bg` rounded pill (CSS under `.player` in `index.css`) holding a
   gradient pink→lavender play/pause button, the waveform, an `m:ss / m:ss` time readout, and
@@ -196,16 +199,27 @@ many audio samples as reference points** — instantly answering "where do I sit
 - **Rachel's takes** (#1–#N) as prominent rose dots, each at its true value, with a `#label`
   and a thin dashed **guide line** straight down to the bar. When dots cluster, labels are
   bumped up into **stacked lanes** (greedy `assignLanes`) so they never overlap; the guide
-  keeps each anchored. The currently-selected take is highlighted pink + enlarged.
+  keeps each anchored. Lanes are **capped at 4**: past that, only the active take and the
+  latest 5 keep their `#label` (the rest are bare dots, still clickable and labelled for
+  screen readers) and dots may share a lane. The currently-selected take is highlighted pink
+  + enlarged.
 - **Web reference voices** as smaller **pink (female `FEM`) / blue (male `MASC`)** ticks below
-  the bar — STRICT color rule. Shown only on **gendered** metrics (`showRefs: true` →
-  Pitch, F2, F3); non-gendered ones (Loudness, HNR, jitter) and Weight (own trend only, still
-  being validated) show her takes only, with a legend note.
+  the bar — STRICT color rule — with **shape as a second channel** (round head = woman,
+  square head = man; the legend keys match) and the gender in each tick's `aria-label`. Each
+  tick has a ≥ 14 px hit area; ticks closer than that stack into rows (up to 4). Shown only on **gendered** metrics whose reference numbers are
+  comparable (`showRefs: true` → Pitch today). F2/F3 are gendered but sit out
+  (`showRefs: false` + a `refNote` legend line, "reference voices are being re-measured with the
+  current analyzer") until `reference.json` is rebuilt with the current formant pipeline — flip
+  them back then; the ResonanceCard counts and the CheatSheet F2 averages follow the same
+  switch. Non-gendered ones (Loudness, HNR, jitter) and Weight (own trend only, still being
+  validated) show her takes only, with a legend note.
 - A **legend** + the lo/hi axis. The scale auto-stretches lo/hi so every value fits.
 
 **Click a dot or a reference tick → a `WaveformPlayer` opens below the scale** and plays that
 clip (take audio or the reference's preview). Click the same one again (or its ✕) to close it.
-Dismiss the modal via click-outside, Esc, or its ✕.
+Dismiss the modal via click-outside, Esc, or its ✕. The card is capped at
+`calc(100dvh - 40px)` and scrolls inside itself on short screens, and it grows out of the
+clicked card (its `transform-origin` is computed relative to its own box on open).
 
 **Plumbing:**
 - `src/metrics.ts` — the **metric registry** (`METRICS`, keyed by `MetricKey`). Each
@@ -294,20 +308,40 @@ and the one place the reference pipeline lives (edit it there, not ad hoc).
   take by several dB, and the direction is unsettled (arithmetically a steeper roll-off gives a
   *larger* value, yet the reference women average *lower*). So the dashboard treats it as
   **her own trend only**: `WEIGHT_ZONES` use neutral GROW/BUTTER with direction names
-  (lighter / mid / heavier), no goal band, **no MASC blue or FEM pink**, and `showRefs: false`
+  (lower / mid / higher — not "lighter/heavier", which would assume the direction), no goal
+  band, **no MASC blue or FEM pink**, and `showRefs: false`
   (no male/female ticks). Every UI sentence about direction reads `WEIGHT_DIRECTION` in
-  `zones.ts` ("lower = lighter and airier, higher = heavier"), so a settled sign changes in
+  `zones.ts` ("lower or higher is not yet validated as a feminine cue; watch your own
+  trend"), so a settled sign changes in
   one place. Don't call weight feminine/masculine in annotations either. `h1a3_db`
   (uncorrected H1–A3) and `tilt_db_khz` (LTAS slope) are stored too as cheap secondaries.
 - **Register & phrasing** — the deep layer. Pitch isn't just an average; it's a *contour*.
-  We detect where the voice **crashes out of register** (below a floor, default 130 Hz,
-  back toward chest voice) and where those crashes cluster within a phrase. Trailing-off
-  phrase **endings** are the classic, high-salience failure. We also report **melody in
-  semitones** two ways: over the frames above the floor (`in_register_semitones_sd`, shown in
-  the Register section — never promoted to a headline card) and over all voiced frames
-  (`semitones_sd`). Dips below the floor usually widen the second, so a big gap mostly says how
-  much time went below the floor. The in-register number is a truncated SD with no minimum-frame
-  guard, so treat it as fragile when little time was in register.
+  - **The floor is take-relative.** By default it sits `REGISTER_FLOOR_ST` (6) semitones under
+    the take's own median F0 (`register.floor_mode: "relative"`, plus `floor_st_below_median`
+    and `median_hz`); `--register-floor <Hz>` forces a fixed one (`floor_mode: "absolute"`).
+    It describes *her own* register instead of grading every voice against one number, so a
+    take that sits low throughout can't be flagged by it — by design; absolute pitch is the
+    Pitch card's job. Never write a fixed floor number in UI copy; read `floor_hz`.
+  - **Every frame has a state** (`frames.state` in the detail JSON): 1 in register, 2 a brief
+    **dip** under the floor, 3 a **sustained drop** (the analyzer's "crash": ≥ 200 ms of
+    non-creak voicing under the floor), 4 **creak**. Only a sustained drop is falling out of
+    register, and it's the only thing painted masc blue; dips are butter, creak is GROW grey.
+  - **Creak is not a register fall.** It's reported on its own (`creak_pct`, per-phrase
+    `creak_pct`) and some creak at phrase ends is normal. Never frame it as dropping out.
+  - `in_register_pct` = share of non-creak voiced time *not* inside a sustained drop. Fluent
+    speech reads ~100%, so present it as "time without a sustained drop", never as a grade.
+  - **Position bins** are a phrase's **first third / middle / last third**
+    (`onset/mid/offset_sub_pct`, the sustained-drop share in each). **"Phrase endings"**
+    means `phrases_landed_pct` and nothing else: an ending holds unless most of its last
+    120 ms of non-creak voicing is in a sustained drop. The default register tip names
+    whichever third dropped most (not always the endings), and when `n_crashes` is 0 it
+    just says warmly that nothing dropped out.
+  - **Melody in semitones**, two ways: `in_register_semitones_sd` over steady in-register
+    speech (creak, drops and octave jumps removed; shown in the Register section — never a
+    headline card) and `semitones_sd` over all voiced frames. The gap is mostly creak, drops
+    and tracker jumps, not melody. The in-register number is **null** unless ≥ 50 frames and
+    ≥ 30% of voicing survive; the UI then says "not enough steady voiced speech to judge
+    melody yet" instead of a dash.
 - **Loudness, HNR (clarity/breathiness), jitter/shimmer (steadiness)** — supporting cues.
 
 Caveat to remember: the textbook jitter/shimmer/HNR norms are sustained-vowel clinical
@@ -346,9 +380,10 @@ scripts/build_reference_set.py ──(uv run + ffmpeg)──►    public/refere
 The page layout lives **once**. Personalization happens through named slots woven through
 the UI, backed by **one file per recording** at
 `dashboard-react/src/annotations/entries/<NNN>.tsx` (zero-padded id) that default-exports
-a `RecordingAnnotations` ({ slots }). Auto-discovered via Vite `import.meta.glob` — no
-registry. Switching recordings loads that file, so old takes keep their notes. Only the
-bespoke bits are authored; nothing about the page is copy-pasted per recording.
+a `RecordingAnnotations` ({ slots }). Auto-discovered via Vite `import.meta.glob`
+(`./entries/[0-9]*.tsx`, so the `_example.tsx` template is never bundled) — no registry.
+Switching recordings loads that file, so old takes keep their notes. Only the bespoke bits
+are authored; nothing about the page is copy-pasted per recording.
 
 Two slot kinds (`src/annotations/AnnotationsProvider.tsx`):
 - **`<Note id>`** — override a woven-in note that has a sensible default (children). If the
@@ -358,8 +393,24 @@ Two slot kinds (`src/annotations/AnnotationsProvider.tsx`):
 
 Available slots today: notes `note.pitch`, `note.loudness`, `note.weight`, `note.resonance`,
 `note.register`; regions `region.top`, `region.afterLatest`, `region.afterResonance`,
-`region.afterRegister`, `region.insights`, `region.bottom`. Add more `<Note>`/`<Region>`
-in the layout if a take needs to speak somewhere new.
+`region.afterRegister`, `region.insights`, `region.bottom`. They're a typed union (`SlotId` =
+`NoteId | RegionId` in `src/annotations/types.ts`), so a misspelt slot is a build error. To
+add one: extend the union, then place the `<Note>`/`<Region>` in the layout.
+
+How the provider keeps a bad entry from hurting the page:
+- **No stale content on a take switch.** The detail JSON and the entry module are tagged
+  with the take id they were loaded for, and the context only exposes values whose tag
+  matches the active take — mid-switch you see loading states, never the previous take's
+  contour or notes. Detail files are cached per session.
+- **Every slot runs inside an error boundary.** A slot that throws (when called or while its
+  JSX renders) logs `[annotations] slot "<id>" in entries/<NNN>.tsx threw` and shows the
+  default note / empty state. A slot returning `null` counts as "not provided".
+- **An entry that fails to import** (syntax/runtime error at module level) logs the file and
+  the insights region says "this take's insight failed to load"; notes fall back to defaults.
+- `Note` and `Region` apply `RichText` themselves.
+- Slot ctx is `{ recording, detail, recordings, previous }` — `recordings` sorted by id,
+  `previous` the take before. Entries read every number from ctx (or a goal from
+  `zones.ts`), never a typed-in literal.
 
 Reusable viz/components live in `src/annotations/lib/` (`InsightCard`, `Drill`,
 `PhraseEndingStrip`, …). **Grow this library**: if an insight needs a chart that could be
@@ -368,8 +419,23 @@ viz inside one entry. `entries/_example.tsx` is the reference example (the templ
 
 ### Recording selector
 `App.tsx` tracks an `active` recording (defaults to latest). A pill switcher (shown with
-2+ recordings) and clicking a card in "All recordings" set it. The active recording drives
-the top sections + which annotation file loads.
+2+ recordings) and each card's **"view ↑" button** in "All recordings" (the number + label,
+`aria-current` on the one showing) set it; nothing else on a card selects, and presses inside
+a card's player never bubble out. Selecting from a card scrolls back up to the take heading
+and focuses it. The choice lives in the URL hash (`#take=N`, via `replaceState`) and is read
+on load, so a refresh or a shared link opens the same take; an unknown id falls back to the
+latest. The active recording drives the top sections + which annotation file loads.
+
+### Loading, errors and the empty garden
+`src/data.ts` is the fetch boundary. `loadRecordings()` runs every entry through
+`normalizeRecording()`: missing objects (`pitch`, `formants`, …) get null-valued defaults,
+optional fields stay `undefined` (so "older analysis" is still detectable), and an entry
+with no usable id or a duplicate id is dropped and listed in a visible "take #N couldn't be
+read" note. The app distinguishes **loading / error / ready**, so "no recordings yet" never
+shows beside an error; a 404 (or the dev server's HTML fallback) means no takes yet. With
+zero takes the Trends and All-recordings sections hide and one welcome card shows the exact
+analyzer command. `<App/>` sits inside a top-level `ErrorBoundary` (`components/ErrorBoundary.tsx`,
+the same one the slots and the contour use), so a crash shows a gentle card, never a blank page.
 
 ---
 
@@ -419,10 +485,17 @@ the top sections + which annotation file loads.
   IDE's TS server often lags behind file moves; a restart clears it.
 - **Data flow:** `analyze.py` writes everything additively and idempotently per id. The
   React app never imports data statically — it fetches at runtime. Don't hardcode data.
-- **Register methodology** (in `analyze.py`): F0 contour via `Sound.to_pitch`; semitones =
-  `12*log2(hz/100)` (perceptual; SD is reference-independent); phrase segmentation via
-  Praat `To TextGrid (silences)` on an Intensity object; per-frame position binned into
-  phrase thirds; "landed in register" = mean offset pitch ≥ floor.
+- **Register methodology** (in `analyze.py`; constants at the top of the file): F0 contour via
+  `Sound.to_pitch`; semitones = `12*log2(hz/100)` (perceptual; SD is reference-independent).
+  Octave errors (> 1.8× or < 0.55× the take median) are dropped before pitch extremes and
+  melody. Floor = median − 6 st unless `--register-floor` is given. **Creak** = a run below
+  0.6× median whose Praat pitch strength is < 0.8 or that has a ~2× candidate (≥ 0.3) —
+  a periodic modal drop into a lower register is *not* creak. **Sustained drop** = ≥ 200 ms of
+  sub-floor non-creak voicing, bridging consonant gaps up to 150 ms; shorter excursions are
+  dips. **Phrases**: frames more than 25 dB under the take's 95th-percentile intensity are
+  silence, gaps < 250 ms merge, phrases < 0.5 s or with < 20 voiced frames are dropped.
+  Per-frame position is binned into phrase thirds. Pitch min/max/range are the p5/p95 of the
+  cleaned track (`p5_hz`/`p95_hz` too) — the typical span, not the extremes.
 - **`base: './'`** is set in `vite.config.ts`. Note: opening the built `dist/index.html`
   from `file://` won't work (browsers block `fetch` of the JSON) — use `npm run dev`/preview.
 - When in doubt about a metric or model, prefer the dedicated skill and verify with a build.

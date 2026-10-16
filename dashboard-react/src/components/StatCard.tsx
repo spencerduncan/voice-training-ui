@@ -57,7 +57,7 @@ export function StatCard({
       aria-label={
         clickable ? `Open ${title} reference scale` : undefined
       }
-      title={clickable ? "tap to see how you compare to real voices 🔍" : undefined}
+      title={clickable ? "tap to see the full scale 🔍" : undefined}
     >
       {clickable && (
         <span className="stat-expand" aria-hidden="true">

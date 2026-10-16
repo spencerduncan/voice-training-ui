@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { FiVolume2 } from "react-icons/fi";
 import type { Recording, ReferenceVoice } from "../types";
 import { METRICS, type MetricDef } from "../metrics";
@@ -22,6 +22,7 @@ interface Tick {
   kind: "take" | "fem" | "masc";
   active: boolean;
   lane: number; // vertical row for stacked take/ref markers
+  showLabel: boolean; // takes only: draw the "#N" next to the dot
   key: string; // unique id for playback selection
   audio?: string; // playable clip path, if any
   playTitle: string; // label shown above the player when this clip plays
@@ -51,28 +52,56 @@ const TAKE_ROW = 22; // height of one stack lane
 // bar with a visible guide line — never sitting flush on it.
 const TAKE_GAP = 6;
 const DOT_R = 8; // ~dot radius, so the guide reaches the bar top
+// At most this many take lanes: past it, dots share lanes (and overlap a
+// little) rather than pushing the bar off a phone screen.
+const MAX_TAKE_LANES = 4;
+// horizontal room (% of the scale) a dot needs with / without its "#N" label
+const LABELLED_W = 16;
+const BARE_W = 3.5;
+// When every label can't fit in MAX_TAKE_LANES, only the active take and the
+// most recent few keep their "#N"; the rest are bare dots (still clickable,
+// still titled and labelled for screen readers).
+const LABEL_RECENT = 5;
 
-// Assign each tick a "lane" (0,1,2,…) so ticks whose positions are within
-// `minGap` % of each other get stacked vertically instead of colliding.
-// Greedy: sort by pct, drop each tick into the lowest lane whose last tick is
-// far enough to the left.
-function assignLanes(ticks: Tick[], minGap: number): number {
+// reference ticks: every tick gets at least this wide a hit area, and ticks
+// closer than that stack into rows instead of covering each other
+const REF_HIT_PX = 14;
+const REF_ROW = 20;
+const MAX_REF_LANES = 4;
+
+// Greedy lane assignment: sort by position and drop each tick into the lowest
+// lane whose previous tick has ended (its dot + label width) by the time this
+// one starts. With `cap` set, a tick that fits nowhere goes into the lane that
+// frees up earliest, accepting a small overlap. Returns the number of lanes.
+function assignLanes(
+  ticks: Tick[],
+  width: (t: Tick) => number,
+  cap = Infinity,
+): number {
   const ordered = [...ticks].sort((a, b) => a.pct - b.pct);
-  const laneRight: number[] = []; // right-edge pct of the last tick in each lane
-  let maxLane = 0;
+  const laneEnd: number[] = []; // where the last tick in each lane ends (%)
   for (const t of ordered) {
-    let lane = laneRight.findIndex((r) => t.pct - r >= minGap);
+    let lane = laneEnd.findIndex((end) => t.pct >= end);
     if (lane === -1) {
-      lane = laneRight.length;
-      laneRight.push(t.pct);
-    } else {
-      laneRight[lane] = t.pct;
+      if (laneEnd.length < cap) {
+        lane = laneEnd.length;
+        laneEnd.push(0);
+      } else {
+        lane = laneEnd.indexOf(Math.min(...laneEnd));
+      }
     }
+    laneEnd[lane] = Math.max(laneEnd[lane], t.pct + width(t));
     t.lane = lane;
-    if (lane > maxLane) maxLane = lane;
   }
-  return maxLane;
+  return Math.max(1, laneEnd.length);
 }
+
+const playKeys = (play: () => void) => (e: React.KeyboardEvent) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    play();
+  }
+};
 
 export function MetricModal({
   metric,
@@ -83,8 +112,11 @@ export function MetricModal({
   onClose,
 }: Props) {
   const cardRef = useRef<HTMLDivElement>(null);
+  const scaleRef = useRef<HTMLDivElement>(null);
   // which clip (take or reference) is loaded into the in-modal player
   const [selected, setSelected] = useState<Selected | null>(null);
+  // scale width in px — turns the 14 px reference hit area into a % gap
+  const [scaleW, setScaleW] = useState(560);
 
   const play = (t: Tick) => {
     if (!t.audio) return;
@@ -107,6 +139,30 @@ export function MetricModal({
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
+
+  // Grow out of the clicked card. transform-origin is relative to the modal
+  // card's own box, so the clicked card's centre (viewport coordinates) has to
+  // be shifted by where the modal card sits. offsetLeft/Top ignore the running
+  // scale animation (getBoundingClientRect wouldn't); the backdrop is fixed at
+  // the viewport origin, so they're viewport coordinates too. Runs before the
+  // first paint, so the animation starts from the right point.
+  useLayoutEffect(() => {
+    const card = cardRef.current;
+    if (!card || !origin) return;
+    card.style.setProperty("--ox", `${origin.left + origin.width / 2 - card.offsetLeft}px`);
+    card.style.setProperty("--oy", `${origin.top + origin.height / 2 - card.offsetTop}px`);
+  }, [origin]);
+
+  useLayoutEffect(() => {
+    const el = scaleRef.current;
+    if (!el) return;
+    const measure = () => setScaleW(el.clientWidth || 560);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Focus management + scroll lock, so a keyboard / screen-reader user actually
   // ends up *inside* the dialog instead of stranded behind it:
@@ -204,6 +260,7 @@ export function MetricModal({
 
   const span = hi - lo || 1;
   const toPct = (v: number) => clampPct(((v - lo) / span) * 100);
+  const valueText = (v: number) => `${fmt(Math.round(v * 10) / 10)} ${metric.unit}`;
 
   const takeTicks: Tick[] = recordings
     .map((r) => {
@@ -216,6 +273,7 @@ export function MetricModal({
         kind: "take" as const,
         active: r.id === activeId,
         lane: 0,
+        showLabel: true,
         key: `take-${r.id}`,
         audio: r.audio ?? undefined,
         playTitle: `take #${r.id} — ${r.label}`,
@@ -223,6 +281,28 @@ export function MetricModal({
       };
     })
     .filter(Boolean) as Tick[];
+
+  // Each take = a dot + label pair sitting at the take's TRUE horizontal value.
+  // When two are too close, the later one is bumped UP a lane (vertical offset)
+  // so dot+label never overlap. A thin dashed guide drops from each dot down to
+  // the bar so you can always read off its true position. If that would need
+  // more than MAX_TAKE_LANES, only the active take + the latest few keep their
+  // labels and the lanes are capped.
+  let takeLanes = assignLanes(takeTicks, () => LABELLED_W);
+  if (takeLanes > MAX_TAKE_LANES) {
+    const recent = new Set(
+      [...takeTicks]
+        .sort((a, b) => Number(b.label.slice(1)) - Number(a.label.slice(1)))
+        .slice(0, LABEL_RECENT)
+        .map((t) => t.key),
+    );
+    for (const t of takeTicks) t.showLabel = t.active || recent.has(t.key);
+    takeLanes = assignLanes(
+      takeTicks,
+      (t) => (t.showLabel ? LABELLED_W : BARE_W),
+      MAX_TAKE_LANES,
+    );
+  }
 
   const refTicks: Tick[] = metric.showRefs
     ? (references
@@ -236,6 +316,7 @@ export function MetricModal({
             kind: ref.gender === "f" ? ("fem" as const) : ("masc" as const),
             active: false,
             lane: 0,
+            showLabel: false,
             key: `ref-${idx}`,
             audio: ref.audio,
             playTitle: ref.label,
@@ -244,23 +325,14 @@ export function MetricModal({
         })
         .filter(Boolean) as Tick[])
     : [];
-
-  // Each take = a dot + label pair sitting at the take's TRUE horizontal value.
-  // When two are too close, the later one is bumped UP a lane (vertical offset)
-  // so dot+label never overlap. A thin dashed guide drops from each dot down to
-  // the bar so you can always read off its true position.
-  const takeLanes = assignLanes(takeTicks, 16) + 1; // dot+label width as % gap
-
-  // animation origin → CSS custom props so the card grows out of the clicked card
-  const style = origin
-    ? ({
-        "--ox": `${origin.left + origin.width / 2}px`,
-        "--oy": `${origin.top + origin.height / 2}px`,
-      } as React.CSSProperties)
-    : undefined;
+  // ticks closer than one hit area stack into rows below the bar
+  const refGap = ((REF_HIT_PX + 1) / Math.max(scaleW, 1)) * 100;
+  const refLanes = refTicks.length
+    ? assignLanes(refTicks, () => refGap, MAX_REF_LANES)
+    : 0;
 
   return (
-    <div className="mm-backdrop" onClick={onClose} style={style}>
+    <div className="mm-backdrop" onClick={onClose}>
       <div
         className="mm-card"
         ref={cardRef}
@@ -279,7 +351,7 @@ export function MetricModal({
           <p>{metric.blurb}</p>
         </div>
 
-        <div className="mm-scale-wrap">
+        <div className="mm-scale-wrap" ref={scaleRef}>
           {/* her takes ABOVE the band: each is a dot+label pair at its true
               horizontal value, bumped up into lanes when too close, with a thin
               dashed guide dropping straight down to the bar. */}
@@ -298,28 +370,15 @@ export function MetricModal({
                   bottom: TAKE_GAP + t.lane * TAKE_ROW,
                 }}
                 onClick={t.audio ? () => play(t) : undefined}
-                role={t.audio ? "button" : undefined}
+                role={t.audio ? "button" : "img"}
                 tabIndex={t.audio ? 0 : undefined}
-                onKeyDown={
-                  t.audio
-                    ? (e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          play(t);
-                        }
-                      }
-                    : undefined
-                }
-                aria-label={
-                  t.audio
-                    ? `Play take ${t.label}${
-                        selected?.key === t.key ? " (now playing)" : ""
-                      }`
-                    : undefined
-                }
-                title={`take ${t.label} · ${fmt(
-                  Math.round(t.v * 10) / 10,
-                )}${metric.unit}${t.audio ? " · 🔊 click to hear it" : ""}`}
+                onKeyDown={t.audio ? playKeys(() => play(t)) : undefined}
+                aria-label={`${t.audio ? "Play " : ""}take ${t.label}, ${valueText(t.v)}${
+                  t.active ? " (the take on show)" : ""
+                }${selected?.key === t.key ? " (now playing)" : ""}`}
+                title={`take ${t.label} · ${valueText(t.v)}${
+                  t.audio ? " · 🔊 click to hear it" : ""
+                }`}
               >
                 {/* dashed guide from this dot straight down to the bar */}
                 <span
@@ -331,7 +390,11 @@ export function MetricModal({
                     <FiVolume2 className="mm-spk" aria-hidden="true" />
                   )}
                 </span>
-                <span className="mm-take-label">{t.label}</span>
+                {t.showLabel && (
+                  <span className="mm-take-label" aria-hidden="true">
+                    {t.label}
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -357,58 +420,49 @@ export function MetricModal({
             })}
           </div>
 
-          {/* reference voices: smaller pink/blue ticks below the band, all at a
-              uniform height (a light backdrop showing where real voices sit) */}
+          {/* reference voices below the band. Colour AND shape say who's who
+              (pink round head = a woman, blue square head = a man), each tick
+              has a ≥14 px hit area, and ticks that would collide stack into
+              rows. Colours follow the strict rule: FEM pink / MASC blue. */}
           {refTicks.length > 0 && (
-            <div className="mm-row mm-row-ref">
-              {refTicks.map((t, i) => (
-                <div
-                  key={`r${i}`}
-                  className={`mm-ref mm-ref-${t.kind}${
-                    t.audio ? " is-clickable" : ""
-                  }${selected?.key === t.key ? " is-playing" : ""}`}
-                  style={{ left: `${t.pct}%` }}
-                  onClick={t.audio ? () => play(t) : undefined}
-                  role={t.audio ? "button" : undefined}
-                  tabIndex={t.audio ? 0 : undefined}
-                  onKeyDown={
-                    t.audio
-                      ? (e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            play(t);
-                          }
-                        }
-                      : undefined
-                  }
-                  aria-label={
-                    t.audio
-                      ? `Play reference voice ${t.label}${
-                          selected?.key === t.key ? " (now playing)" : ""
-                        }`
-                      : undefined
-                  }
-                  title={`${t.label} · ${fmt(Math.round(t.v))}${metric.unit}${
-                    t.audio ? " · 🔊 click to hear it" : ""
-                  }`}
-                >
-                  <span className="mm-ref-stem" />
-                  {t.audio && (
-                    <FiVolume2 className="mm-ref-spk" aria-hidden="true" />
-                  )}
-                </div>
-              ))}
+            <div className="mm-row mm-row-ref" style={{ height: refLanes * REF_ROW + 2 }}>
+              {refTicks.map((t, i) => {
+                const who = t.kind === "fem" ? "woman" : "man";
+                return (
+                  <div
+                    key={`r${i}`}
+                    className={`mm-ref mm-ref-${t.kind}${
+                      t.audio ? " is-clickable" : ""
+                    }${selected?.key === t.key ? " is-playing" : ""}`}
+                    style={{ left: `${t.pct}%`, top: t.lane * REF_ROW }}
+                    onClick={t.audio ? () => play(t) : undefined}
+                    role={t.audio ? "button" : "img"}
+                    tabIndex={t.audio ? 0 : undefined}
+                    onKeyDown={t.audio ? playKeys(() => play(t)) : undefined}
+                    aria-label={`${t.audio ? "Play " : ""}reference voice ${t.label} (a ${who}), ${valueText(t.v)}${
+                      selected?.key === t.key ? " (now playing)" : ""
+                    }`}
+                    title={`${t.label} · ${who} · ${valueText(t.v)}${
+                      t.audio ? " · 🔊 click to hear it" : ""
+                    }`}
+                  >
+                    <span className="mm-ref-stem" />
+                    <span className="mm-ref-head" />
+                    {t.audio && (
+                      <FiVolume2 className="mm-ref-spk" aria-hidden="true" />
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
 
           <div className="mm-axis">
             <span>
-              {Math.round(lo)}
-              {metric.unit}
+              {Math.round(lo)} {metric.unit}
             </span>
             <span>
-              {Math.round(hi)}
-              {metric.unit}
+              {Math.round(hi)} {metric.unit}
             </span>
           </div>
         </div>
@@ -431,6 +485,7 @@ export function MetricModal({
               key={selected.key}
               src={selected.audio}
               downloadName={selected.downloadName}
+              label={selected.title}
             />
           </div>
         )}
@@ -459,9 +514,11 @@ export function MetricModal({
             </>
           ) : (
             <span className="mm-legend-note">
-              {REF_METRIC_TITLES.length > 0
-                ? `reference voices show on the gendered metrics — ${REF_METRIC_TITLES.join(" · ")}`
-                : "just your own takes here"}
+              {metric.refNote
+                ? metric.refNote
+                : REF_METRIC_TITLES.length > 0
+                  ? `reference voices show on the gendered metrics — ${REF_METRIC_TITLES.join(" · ")}`
+                  : "just your own takes here"}
             </span>
           )}
         </div>
@@ -469,8 +526,9 @@ export function MetricModal({
         {/* The ticks are a sample, not a finish line. Without this the pink/blue
             rows read as "get over there", which is the wrong objective — the
             bands are rough guides drawn between the groups (not at either
-            group's average), and real voices land on both sides of them. Count comes from refTicks (what actually rendered
-            for THIS metric), not references.length, so it can never overstate. */}
+            group's average), and real voices land on both sides of them. Count
+            comes from refTicks (what actually rendered for THIS metric), not
+            references.length, so it can never overstate. */}
         {metric.showRefs && refTicks.length > 0 && (
           <p className="mm-context">
             where {refTicks.length} recorded voices actually landed — a spread,

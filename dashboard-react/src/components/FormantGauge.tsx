@@ -48,7 +48,7 @@ export function FormantGauge({
           : undefined
       }
       aria-label={clickable ? `Open ${name} resonance reference scale` : undefined}
-      title={clickable ? "tap to see how you compare to real voices 🔍" : undefined}
+      title={clickable ? "tap to see the full scale 🔍" : undefined}
     >
       <div className="fgauge-head">
         <span className="fname">

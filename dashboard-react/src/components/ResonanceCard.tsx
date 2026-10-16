@@ -2,7 +2,7 @@ import type { Recording, ReferenceVoice } from "../types";
 import { F2_ZONES, F3_ZONES, FEM, zoneOf, fmt, type Zone } from "../zones";
 import { FormantGauge } from "./FormantGauge";
 import { Note } from "../annotations/AnnotationsProvider";
-import type { MetricKey } from "../metrics";
+import { METRICS, type MetricKey } from "../metrics";
 
 interface ResonanceCardProps {
   r: Recording;
@@ -28,6 +28,9 @@ function womenOutsideFem(
 
 export function ResonanceCard({ r, onExpand, references = [] }: ResonanceCardProps) {
   const f = r.formants;
+  // reference.json's F2/F3 only count once they're measured the same way as
+  // the takes — the same switch that hides their ticks in the modal
+  const refsComparable = METRICS.f2.showRefs && METRICS.f3.showRefs;
   const onF2 = womenOutsideFem(references, F2_ZONES, (v) => v.formants?.f2_hz);
   const onF3 = womenOutsideFem(references, F3_ZONES, (v) => v.formants?.f3_hz);
   const z2 = zoneOf(F2_ZONES, f.f2_hz);
@@ -109,13 +112,21 @@ export function ResonanceCard({ r, onExpand, references = [] }: ResonanceCardPro
           : "a small reference set"}
         , so each group's <i>average</i> lands in its own band — but plenty of
         real voices don't
-        {onF2.total > 0 && onF3.total > 0 ? (
+        {refsComparable && onF2.total > 0 && onF3.total > 0 ? (
           <>
             : {onF2.outside} of the {onF2.total} women here read <i>neutral</i>{" "}
             or <i>deeper</i> on F2, and {onF3.outside} of {onF3.total} on F3
           </>
         ) : null}
-        . Resonance is partly something you shape and partly the size
+        .{" "}
+        {!refsComparable && (
+          <>
+            Those reference voices are being re-measured with the current
+            analyzer, which reads formants a little differently, so treat the
+            bands as rough until they're redrawn.{" "}
+          </>
+        )}
+        Resonance is partly something you shape and partly the size
         of what you're shaping, so if this number finds a level and stays there,
         that's information — not something to force. It's one cue of several:
         melody and how you land phrase endings are still doing real

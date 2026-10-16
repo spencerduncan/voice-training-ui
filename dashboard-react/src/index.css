@@ -296,12 +296,6 @@ section {
   grid-template-columns: 1fr;
   gap: 14px;
 }
-/* click-to-select wrapper around each recording card (a mouse convenience —
-   the keyboard path is the .rec-pick button on the card's number + label) */
-.rec-select {
-  cursor: pointer;
-  border-radius: var(--radius);
-}
 .rec-pick {
   display: flex;
   align-items: center;
@@ -322,10 +316,6 @@ button.rec-pick {
 button.rec-pick:focus-visible {
   outline: var(--focus-ring);
   outline-offset: 2px;
-}
-/* inside the player the cursor belongs to the player's own controls */
-.rec-select .player {
-  cursor: default;
 }
 .rec {
   background: var(--card);
@@ -885,8 +875,24 @@ a.legend-link {
   border: 2px solid #fff;
   box-shadow: 0 24px 60px rgba(150, 110, 165, 0.34);
   padding: 26px 28px 22px;
+  /* never taller than the screen: a short phone (or a long reference legend)
+     scrolls inside the card instead of pushing the close button off-screen */
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* --ox/--oy are set from JS relative to this card's own box (see
+     MetricModal), so it grows out of the card that was clicked */
   transform-origin: var(--ox, 50%) var(--oy, 50%);
   animation: mm-pop 0.34s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+@media (max-width: 520px) {
+  .mm-backdrop {
+    padding: 20px 10px;
+  }
+  .mm-card {
+    padding: 22px 16px 18px;
+  }
 }
 /* the card takes focus on open so the dialog is announced; it's a container,
    not a control, and the whole screen already changed — no ring needed here.
@@ -1057,31 +1063,50 @@ a.legend-link {
   font-size: 12px;
 }
 
-/* reference ticks: smaller pink (fem) / blue (masc) stems below the band,
-   all at a uniform height so they read as a clean row, not a bumpy stagger.
-   Pulled up a touch so the stems slightly overlap the bar's bottom edge. */
+/* reference ticks below the band: a short stem with a head. Colour AND shape
+   carry who's who — pink + ROUND head = a woman, blue + SQUARE head = a man —
+   so the row still reads without colour. Each tick is a 14px-wide hit area;
+   ticks that would collide are stacked into rows (top set inline). Pulled up a
+   touch so the first row's stems meet the bar's bottom edge. */
 .mm-row-ref {
-  height: 20px;
   margin-top: -2.5px;
 }
 .mm-ref {
   position: absolute;
   top: 0;
+  width: 14px;
+  height: 19px;
   transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 .mm-ref-stem {
   display: block;
   width: 3px;
-  height: 16px;
+  height: 10px;
   border-radius: 2px;
 }
-.mm-ref-fem .mm-ref-stem {
-  background: #ffb6d5;
+.mm-ref-head {
+  display: block;
+  width: 8px;
+  height: 8px;
+  margin-top: -1px;
   box-shadow: 0 0 0 1px #fff;
 }
-.mm-ref-masc .mm-ref-stem {
+.mm-ref-fem .mm-ref-stem,
+.mm-ref-fem .mm-ref-head {
+  background: #ffb6d5;
+}
+.mm-ref-masc .mm-ref-stem,
+.mm-ref-masc .mm-ref-head {
   background: #bcd3f0;
-  box-shadow: 0 0 0 1px #fff;
+}
+.mm-ref-fem .mm-ref-head {
+  border-radius: 50%;
+}
+.mm-ref-masc .mm-ref-head {
+  border-radius: 1.5px;
 }
 
 .mm-axis {
@@ -1117,6 +1142,13 @@ a.legend-link {
   border-radius: 50%;
   background: #b06a96;
 }
+/* legend keys mirror the tick heads: round = women, square = men */
+.mm-key-fem {
+  border-radius: 50%;
+}
+.mm-key-masc {
+  border-radius: 2px;
+}
 .mm-legend-note {
   font-style: italic;
 }
@@ -1148,9 +1180,16 @@ a.legend-link {
 .mm-ref.is-clickable .mm-ref-stem {
   transition: transform 0.14s ease, filter 0.14s ease;
 }
+.mm-ref.is-clickable .mm-ref-head {
+  transition: transform 0.14s ease, filter 0.14s ease;
+}
 .mm-ref.is-clickable:hover .mm-ref-stem,
 .mm-ref.is-clickable:focus-visible .mm-ref-stem {
-  transform: scaleY(1.25);
+  filter: brightness(0.95);
+}
+.mm-ref.is-clickable:hover .mm-ref-head,
+.mm-ref.is-clickable:focus-visible .mm-ref-head {
+  transform: scale(1.3);
   filter: brightness(0.95);
 }
 /* a 2px tick can't show focus by growing — it needs an actual ring */
@@ -1161,7 +1200,7 @@ a.legend-link {
   outline: var(--focus-ring);
   outline-offset: 3px;
 }
-.mm-ref.is-playing .mm-ref-stem {
+.mm-ref.is-playing .mm-ref-head {
   box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px rgba(176, 106, 150, 0.5);
 }
 /* tiny speaker badge above a ref tick — hidden until hover / focus / playing so
@@ -1249,6 +1288,199 @@ a.legend-link {
   background: var(--pink-soft);
   color: #b06a96;
 }
+/* Reduced motion: no animations, transitions or smooth scrolling anywhere —
+   the modal appears in place, hovers don't lift, bars don't grow, and
+   "scroll to this take" jumps. (JS scrollIntoView checks the same query.) */
 @media (prefers-reduced-motion: reduce) {
-  .mm-backdrop, .mm-card { animation: none; }
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+  .mm-backdrop,
+  .mm-card,
+  .mm-player {
+    animation: none !important;
+  }
+}
+
+/* ---- register section: contour legend, creak line, null-melody note ---- */
+.contour-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  justify-content: center;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  padding: 4px 0 6px;
+}
+.contour-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.contour-key {
+  display: inline-block;
+  width: 18px;
+  height: 4px;
+  border-radius: 2px;
+  border: 0 solid;
+}
+/* creak is dashed in the chart, so its key is too (shape as a second channel) */
+.contour-key.is-dashed {
+  height: 0;
+  border-top-width: 3px;
+  border-top-style: dotted;
+  border-radius: 0;
+}
+.contour-loading {
+  text-align: center;
+  color: var(--ink-soft);
+  font-size: 13px;
+  padding: 70px 10px;
+}
+.stat .value.value-note {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.35;
+  margin: 6px 0 8px;
+}
+.creak-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 9px 14px;
+  border-radius: 14px;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.creak-swatch {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+/* ---- load states: error / unreadable takes / the empty-garden welcome ---- */
+.empty-error {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 2px solid #fff;
+  padding: 32px 20px;
+  margin-top: 8px;
+}
+.empty-hint {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12.5px;
+}
+.empty code,
+.welcome code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.92em;
+}
+.crash-reload {
+  margin-top: 14px;
+  font: inherit;
+  font-weight: 700;
+  color: #b06a96;
+  background: var(--pink-bg);
+  border: 2px solid var(--pink-soft);
+  border-radius: 999px;
+  padding: 7px 16px;
+  cursor: pointer;
+}
+.crash-reload:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+.data-note {
+  background: var(--lav-bg);
+  border: 1.5px solid #e9e1ff;
+  border-radius: 14px;
+  padding: 10px 14px;
+  margin: 4px 0 12px;
+  font-size: 13px;
+  color: var(--ink);
+}
+.welcome {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 2px solid #fff;
+  padding: 24px 24px 20px;
+  text-align: center;
+}
+.welcome h2 {
+  margin: 0 0 8px;
+  font-size: 21px;
+  color: #b06a96;
+}
+.welcome p {
+  margin: 0 auto 12px;
+  max-width: 560px;
+  font-size: 14px;
+  color: var(--ink);
+}
+.welcome pre {
+  margin: 0 auto 14px;
+  max-width: 100%;
+  overflow-x: auto;
+  text-align: left;
+  background: var(--lav-bg);
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 13px;
+  color: #7a5a92;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* the take heading takes focus when a card below selects it (so keyboard
+   users land where the page scrolled to); it's a heading, not a control */
+.section-title:focus {
+  outline: none;
+}
+
+/* ---- recording cards: current take + explicit "view" control ---- */
+.rec.is-current {
+  border-color: var(--pink);
+}
+.rec-view {
+  margin-left: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #b06a96;
+  background: var(--pink-bg);
+  border: 1.5px solid var(--pink-soft);
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+.rec.is-current .rec-view {
+  background: linear-gradient(135deg, var(--pink-soft), var(--lav-soft));
+  border-color: transparent;
+}
+/* idle (not yet loaded) player: a quiet wave placeholder at the real height */
+.player .wave-idle {
+  height: 42px;
+  background: repeating-linear-gradient(
+      90deg,
+      #d9cbf3 0 2.5px,
+      transparent 2.5px 4.1px
+    )
+    center / 100% 10px no-repeat;
+  border-radius: 3px;
+  opacity: 0.8;
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Recording, ReferenceVoice } from "./types";
+import { loadRecordings, loadReferences, type Unreadable } from "./data";
 import {
   PITCH_ZONES,
   F2_ZONES,
@@ -38,43 +39,90 @@ import {
   BulbIcon,
 } from "./components/icons";
 
+// The selected take lives in the URL hash (#take=N), so a reload or a shared
+// link opens the same take. Anything else in the hash is ignored.
+function takeFromHash(): number | null {
+  const m = /(?:^#|&)take=(\d+)/.exec(window.location.hash);
+  return m ? Number(m[1]) : null;
+}
+
+const prefersReducedMotion = () =>
+  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+
+type Load =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "ready"; recordings: Recording[]; unreadable: Unreadable[] };
+
 export function App() {
-  const [recordings, setRecordings] = useState<Recording[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [load, setLoad] = useState<Load>({ status: "loading" });
+  const [selectedId, setSelectedId] = useState<number | null>(takeFromHash);
   const [references, setReferences] = useState<ReferenceVoice[]>([]);
   // which metric's reference modal is open + the card rect it grew from
   const [modal, setModal] = useState<{ key: MetricKey; rect: DOMRect } | null>(
     null,
   );
+  // the "This take" heading — selection from the cards below scrolls back here
+  const takeHeading = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
-    fetch(`${import.meta.env.BASE_URL}recordings.json?t=${Date.now()}`)
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
+    let alive = true;
+    loadRecordings()
+      .then((d) => {
+        if (alive) setLoad({ status: "ready", ...d });
       })
-      .then((data: Recording[]) =>
-        setRecordings([...data].sort((a, b) => a.id - b.id)),
-      )
-      .catch((e) => setError(String(e)));
+      .catch((e: unknown) => {
+        if (alive)
+          setLoad({
+            status: "error",
+            message: e instanceof Error ? e.message : String(e),
+          });
+      });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   // reference voices (real men/women) — degrade gracefully if missing.
   useEffect(() => {
-    fetch(`${import.meta.env.BASE_URL}reference.json?t=${Date.now()}`)
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data: ReferenceVoice[]) =>
-        setReferences(Array.isArray(data) ? data : []),
-      )
-      .catch(() => setReferences([]));
+    let alive = true;
+    loadReferences().then((refs) => {
+      if (alive) setReferences(refs);
+    });
+    return () => {
+      alive = false;
+    };
   }, []);
+
+  // follow hand-edited hashes and back/forward between #take= links
+  useEffect(() => {
+    const onHash = () => setSelectedId(takeFromHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  const select = (id: number, scrollToTake = false) => {
+    setSelectedId(id);
+    // replaceState: switching takes shouldn't pile up history entries, and it
+    // doesn't fire hashchange (so no loop with the listener above)
+    window.history.replaceState(null, "", `#take=${id}`);
+    if (scrollToTake) {
+      const h = takeHeading.current;
+      h?.focus({ preventScroll: true });
+      h?.scrollIntoView({
+        behavior: prefersReducedMotion() ? "auto" : "smooth",
+        block: "start",
+      });
+    }
+  };
 
   const openModal = (key: MetricKey, rect: DOMRect) => setModal({ key, rect });
 
-  const R = recordings ?? [];
+  const R = load.status === "ready" ? load.recordings : [];
+  const unreadable = load.status === "ready" ? load.unreadable : [];
   const latest = R.length ? R[R.length - 1] : null;
-  // the recording currently in focus (defaults to the latest)
+  // the recording currently in focus (defaults to the latest; a #take= for a
+  // take that doesn't exist falls back to the latest too)
   const active =
     (selectedId != null ? R.find((r) => r.id === selectedId) : null) ?? latest;
   const pz = active ? zoneOf(PITCH_ZONES, active.pitch.mean_hz) : null;
@@ -86,7 +134,8 @@ export function App() {
   const isLatest = active && latest && active.id === latest.id;
 
   const mk = (sel: (r: Recording) => number | null): Point[] =>
-    R.map((r) => ({ label: r.id, y: sel(r) }));
+    R.map((r) => ({ id: r.id, date: r.date, y: sel(r) }));
+  const activeId = active?.id ?? null;
 
   return (
     <div className="wrap">
@@ -103,12 +152,43 @@ export function App() {
         )}
       </header>
 
-      {error && (
-        <div className="empty">
-          couldn't load recordings 🌧️
+      {load.status === "loading" && (
+        <div className="empty">gathering your takes… 🌱</div>
+      )}
+
+      {load.status === "error" && (
+        <div className="empty empty-error" role="alert">
+          couldn't load your recordings 🌧️
           <br />
-          {error}
+          {load.message}
+          <br />
+          <span className="empty-hint">
+            your takes are safe — check that the dashboard is running from{" "}
+            <code>dashboard-react/</code> and that <code>recordings.json</code>{" "}
+            is intact, then refresh.
+          </span>
         </div>
+      )}
+
+      {unreadable.length > 0 && (
+        <div className="data-note" role="status">
+          🌧️{" "}
+          {unreadable.map((u, i) => (
+            <span key={i}>
+              {i > 0 && " · "}
+              <b>{u.label}</b> couldn't be read ({u.reason})
+            </span>
+          ))}
+          {R.length > 0 && (
+            <> — {unreadable.length === 1 ? "it's" : "they're"} left out below</>
+          )}
+          . Re-running the analyzer on {unreadable.length === 1 ? "it" : "them"}{" "}
+          usually fixes this.
+        </div>
+      )}
+
+      {load.status === "ready" && R.length === 0 && unreadable.length === 0 && (
+        <WelcomeCard />
       )}
 
       {/* recording switcher */}
@@ -119,7 +199,8 @@ export function App() {
             <button
               key={r.id}
               className={active && r.id === active.id ? "active" : ""}
-              onClick={() => setSelectedId(r.id)}
+              aria-current={active && r.id === active.id ? "true" : undefined}
+              onClick={() => select(r.id)}
             >
               #{r.id} · {r.label}
               {latest && r.id === latest.id ? " 🌟" : ""}
@@ -129,17 +210,17 @@ export function App() {
       )}
 
       {active && (
-        <AnnotationsProvider recording={active}>
+        <AnnotationsProvider recording={active} recordings={R}>
           <Region id="region.top" />
 
           {/* 🎀 This take */}
           <section>
-            <h2 className="section-title">
+            <h2 className="section-title" ref={takeHeading} tabIndex={-1}>
               <BowIcon /> {isLatest ? "Latest take" : `Take #${active.id}`}
             </h2>
             <p className="take-hint">
-              🔍 tap any card with a colored bar to see how you compare to real
-              voices
+              🔍 tap any card with a colored bar to see its full scale, with
+              all your takes on it
             </p>
             <div className="stat-grid">
               <StatCard
@@ -162,28 +243,43 @@ export function App() {
                       </>
                     ) : pz.name === "fem" ? (
                       <>
-                        you're in the <b>fem</b> zone — 165 Hz is the top of the
-                        in-between range, and resonance takes it from there 🌱
+                        you're in the <b>fem</b> zone
+                        {pitchGoal && <> — {pitchGoal.from} Hz is the top of the
+                        in-between range</>}, and resonance takes it from there 🌱
                       </>
                     ) : (
                       <>
-                        you're in the <b>{pz.name}</b> zone — 165 Hz is where the
-                        in-between range tops out, and pitch &amp; resonance
+                        you're in the <b>{pz.name}</b> zone
+                        {pitchGoal && <> — {pitchGoal.from} Hz is where the
+                        in-between range tops out</>}, and pitch &amp; resonance
                         decide together from there 🌱
                       </>
                     )}
                   </Note>
                 }
               />
+              {/* The typical span (5th–95th percentile), not the extremes:
+                  one octave blip or a creaky ending used to stretch this to
+                  hundreds of Hz. It's a description of where the voice
+                  travelled, not a score, so there's no "wider = better". */}
               <StatCard
                 title="Pitch range"
                 value={active.pitch.range_hz}
                 unit="Hz"
                 sub={
-                  <>
-                    {fmt(active.pitch.min_hz)}–{fmt(active.pitch.max_hz)} Hz ·
-                    wider = more melodic & expressive
-                  </>
+                  active.pitch.p5_hz !== undefined ? (
+                    <>
+                      {fmt(active.pitch.p5_hz)}–{fmt(active.pitch.p95_hz)} Hz ·
+                      your typical span, 5th to 95th percentile, so a stray blip
+                      or a creaky ending doesn't stretch it
+                    </>
+                  ) : (
+                    <>
+                      {fmt(active.pitch.min_hz)}–{fmt(active.pitch.max_hz)} Hz ·
+                      lowest to highest (an older analysis — re-run it for the
+                      typical span)
+                    </>
+                  )
                 }
               />
               <StatCard
@@ -251,9 +347,8 @@ export function App() {
                   <Note id="note.weight">
                     source spectral tilt (corrected H1*–A3*) — the <i>thickness</i>{" "}
                     of the voice itself, separate from pitch &amp; resonance ·{" "}
-                    {WEIGHT_DIRECTION}. Read it as <b>your own trend</b>; the
-                    measure is still being validated, so it isn't compared with
-                    anyone else's voice.
+                    {WEIGHT_DIRECTION}. The measure is still being validated, so
+                    it isn't compared with anyone else's voice.
                   </Note>
                 }
               />
@@ -306,6 +401,19 @@ export function App() {
                   here.
                 </div>
               }
+              loading={
+                <div className="insight-placeholder">
+                  opening take #{active.id}'s insight… 🌱
+                </div>
+              }
+              failed={
+                <div className="insight-placeholder">
+                  🌧️ this take's insight failed to load — the rest of the page is
+                  fine.
+                  <br />
+                  the browser console says what went wrong in its entry file.
+                </div>
+              }
             />
           </section>
 
@@ -313,7 +421,9 @@ export function App() {
         </AnnotationsProvider>
       )}
 
-      {/* 📈 Trends over time (across all recordings) */}
+      {/* 📈 Trends over time (across all recordings) — hidden until there's
+          at least one take; the welcome card covers the empty garden */}
+      {R.length > 0 && (
       <section>
         <h2 className="section-title">
           <TrendsIcon /> Trends over time
@@ -326,6 +436,8 @@ export function App() {
           )}
           <ChartCard
             h="Pitch (avg)"
+            unit="Hz"
+            activeId={activeId}
             cap={
               pitchGoal
                 ? `shaded by zone · ${pitchGoal.name} band ${pitchGoal.from} Hz+`
@@ -337,14 +449,18 @@ export function App() {
           />
           <ChartCard
             h="In-register melody"
-            cap="pitch movement in semitones, above-floor time only"
+            unit="st"
+            activeId={activeId}
+            cap="pitch movement in semitones, over steady in-register speech"
             color="#9b7ad0"
             data={mk((r) => r.register?.in_register_semitones_sd ?? null)}
             bands={MELODY_ZONES}
           />
           <ChartCard
-            h="Phrase endings landed"
-            cap="% of phrases that stayed in register"
+            h="Endings that held"
+            unit="%" percent
+            activeId={activeId}
+            cap="% of phrase endings that stayed up in register"
             color="#5fb89a"
             data={mk((r) => r.register?.phrases_landed_pct ?? null)}
             band={[80, 100]}
@@ -352,6 +468,8 @@ export function App() {
           />
           <ChartCard
             h="Resonance (F2)"
+            unit="Hz"
+            activeId={activeId}
             cap="brightness / vocal-tract size cue"
             color="#d99a4e"
             data={mk((r) => r.formants.f2_hz)}
@@ -359,38 +477,35 @@ export function App() {
           />
           <ChartCard
             h="Weight"
-            cap={`spectral tilt · ${WEIGHT_DIRECTION} · your own trend`}
+            unit="dB"
+            activeId={activeId}
+            cap={`spectral tilt · ${WEIGHT_DIRECTION}`}
             color="#8d7ba3" /* neutral lavender-grey: weight carries no pink/blue meaning */
             data={mk((r) => r.weight?.h1a3c_db ?? null)}
             bands={WEIGHT_ZONES}
           />
         </div>
       </section>
+      )}
 
       {/* 📖 All recordings */}
-      <section>
-        <h2 className="section-title">
-          <CardsIcon /> All recordings
-        </h2>
-        <div className="rec-grid">
-          {R.length === 0 ? (
-            <div className="empty">
-              no recordings yet 🌸
-              <br />
-              run the analyzer to plant your first one!
-            </div>
-          ) : (
-            [...R].reverse().map((r) => (
-              <SelectableRecording
+      {R.length > 0 && (
+        <section>
+          <h2 className="section-title">
+            <CardsIcon /> All recordings
+          </h2>
+          <div className="rec-grid">
+            {[...R].reverse().map((r) => (
+              <RecordingCard
                 key={r.id}
                 r={r}
                 current={r.id === active?.id}
-                onSelect={() => setSelectedId(r.id)}
+                onSelect={() => select(r.id, true)}
               />
-            ))
-          )}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* 💡 Cheat sheet */}
       <section>
@@ -421,43 +536,25 @@ export function App() {
   );
 }
 
-// Wrapper that makes an "All recordings" card click-to-select. The keyboard /
-// screen-reader path is the real <button> on the card's number + label (see
-// RecordingCard); this wrapper only adds a bigger mouse target, so it carries
-// no role or tabindex and never nests one control inside another. The card
-// contains a whole WaveformPlayer (play button, seekable waveform, volume
-// slider, download link), so any press that starts inside the player is left
-// alone; otherwise scrubbing take #2 would switch the dashboard onto take #2.
-function SelectableRecording({
-  r,
-  current,
-  onSelect,
-}: {
-  r: Recording;
-  current: boolean;
-  onSelect: () => void;
-}) {
-  // a drag on the volume slider or the waveform can release elsewhere and still
-  // land a click on this wrapper, so remember where the press actually began
-  // (the select button handles its own clicks, so skip those here too)
-  const startedInPlayer = useRef(false);
-  const inPlayer = (t: EventTarget | null) =>
-    t instanceof Element && t.closest(".player, .rec-pick") != null;
-
+// The empty garden: one welcoming card with the exact command that plants the
+// first take. Shown only when recordings.json loaded fine and holds nothing.
+function WelcomeCard() {
   return (
-    <div
-      className="rec-select"
-      title="click to view this take above"
-      onPointerDownCapture={(e) => {
-        startedInPlayer.current = inPlayer(e.target);
-      }}
-      onClick={(e) => {
-        if (startedInPlayer.current || inPlayer(e.target)) return;
-        onSelect();
-      }}
-    >
-      <RecordingCard r={r} current={current} onSelect={onSelect} />
-    </div>
+    <section className="welcome">
+      <h2>🌸 Welcome to your Voice Garden</h2>
+      <p>
+        Nothing planted yet — let's grow your first take. Record yourself
+        reading something (the Rainbow Passage is a lovely start), then from the
+        project folder run:
+      </p>
+      <pre>
+        <code>uv run analyze.py "/path/to/recording.mp3" --label "what you were practicing"</code>
+      </pre>
+      <p>
+        Refresh this page and your take blooms right here, with trends and a
+        place for Claude to write you a personal insight. 💕
+      </p>
+    </section>
   );
 }
 
@@ -469,9 +566,23 @@ interface ChartCardProps {
   band?: [number, number];
   bandColor?: string;
   bands?: ChartBand[];
+  unit?: string;
+  percent?: boolean;
+  activeId?: number | null;
 }
 
-function ChartCard({ h, cap, color, data, band, bandColor, bands }: ChartCardProps) {
+function ChartCard({
+  h,
+  cap,
+  color,
+  data,
+  band,
+  bandColor,
+  bands,
+  unit,
+  percent,
+  activeId,
+}: ChartCardProps) {
   return (
     <div className="chart-card">
       <h3>{h}</h3>
@@ -482,6 +593,9 @@ function ChartCard({ h, cap, color, data, band, bandColor, bands }: ChartCardPro
         band={band}
         bandColor={bandColor}
         bands={bands}
+        unit={unit}
+        percent={percent}
+        activeId={activeId}
       />
     </div>
   );
