@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { FiVolume2 } from "react-icons/fi";
+import { SpeakerIcon } from "./icons";
 import type { Recording, ReferenceVoice } from "../types";
 import { METRICS, type MetricDef } from "../metrics";
 import { MASC, FEM, fmt } from "../zones";
@@ -387,7 +387,7 @@ export function MetricModal({
                 />
                 <span className="mm-take-dot">
                   {t.audio && (
-                    <FiVolume2 className="mm-spk" aria-hidden="true" />
+                    <SpeakerIcon className="mm-spk" />
                   )}
                 </span>
                 {t.showLabel && (
@@ -449,7 +449,7 @@ export function MetricModal({
                     <span className="mm-ref-stem" />
                     <span className="mm-ref-head" />
                     {t.audio && (
-                      <FiVolume2 className="mm-ref-spk" aria-hidden="true" />
+                      <SpeakerIcon className="mm-ref-spk" />
                     )}
                   </div>
                 );
@@ -491,7 +491,7 @@ export function MetricModal({
         )}
 
         <div className="mm-hear">
-          <FiVolume2 className="mm-hear-icon" aria-hidden="true" />
+          <SpeakerIcon className="mm-hear-icon" />
           <span>
             click any <b>dot</b> or <b>tick</b> to hear that voice
           </span>

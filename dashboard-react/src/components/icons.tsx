@@ -177,3 +177,39 @@ export function TulipIcon(p: IconProps = {}) {
     </svg>
   );
 }
+
+// ── Small UI glyphs ──────────────────────────────────────────────────────────
+// Unlike the section icons above, these sit inside coloured badges and dots
+// whose colour changes on hover, on the active take, and for masc reference
+// ticks — so they paint in `currentColor` and get their second tone from
+// opacity. Default size is 1em: the badge's font-size sets it.
+
+/** 🔍 → a chunky magnifier with a plus — "open the full reference scale" */
+export function ExpandIcon(p: IconProps = {}) {
+  // viewBox hugs the glyph so it keeps its mass inside small badges
+  const { children, ...rest } = svgProps("5 5 55 55", { size: "1em", ...p });
+  return (
+    <svg {...rest} fill="currentColor">
+      {children}
+      <path d="M39 39 L51 51" stroke="currentColor" strokeWidth="11" strokeLinecap="round" />
+      <circle cx="27" cy="27" r="16.5" fillOpacity="0.3" stroke="currentColor" strokeWidth="7" />
+      <rect x="19.5" y="24" width="15" height="6" rx="3" />
+      <rect x="24" y="19.5" width="6" height="15" rx="3" />
+    </svg>
+  );
+}
+
+/** 🔊 → a rounded speaker with two soft sound waves — "this one plays" */
+export function SpeakerIcon(p: IconProps = {}) {
+  const { children, ...rest } = svgProps("0 0 64 64", { size: "1em", ...p });
+  return (
+    <svg {...rest} fill="currentColor">
+      {children}
+      <path
+        d="M6 25 C6 22.8 7.8 21 10 21 H17 L30 10 C32 8.4 35 9.8 35 12.4 V51.6 C35 54.2 32 55.6 30 54 L17 43 H10 C7.8 43 6 41.2 6 39 Z"
+      />
+      <path d="M43 23 C47 27.5 47 36.5 43 41" stroke="currentColor" strokeWidth="7" strokeLinecap="round" fill="none" opacity="0.75" />
+      <path d="M51 15 C59 23 59 41 51 49" stroke="currentColor" strokeWidth="7" strokeLinecap="round" fill="none" opacity="0.5" />
+    </svg>
+  );
+}
