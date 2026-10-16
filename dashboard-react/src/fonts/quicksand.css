@@ -1,4 +1,5 @@
-/* Quicksand (variable, latin subset) — Google Fonts, OFL 1.1, embeddable.
+/* Quicksand (variable, latin subset) — Google Fonts, OFL 1.1 (see OFL.txt).
+   Imported at the top of index.css so the build emits the @font-face + woff2.
    The Voice Garden UI uses a rounded system-font stack
    (ui-rounded → SF Pro Rounded → Hiragino Maru Gothic → Quicksand → system-ui).
    Apple platforms resolve ui-rounded natively; shipping Quicksand keeps the

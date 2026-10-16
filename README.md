@@ -41,5 +41,6 @@ Additionally, in jurisdictions where statements of this kind are legal, I dedica
 ## Credits & third-party assets
 
 - **Reference voices** — the preview clips in `dashboard-react/public/reference-audio/` and the measured values in `reference.json` are derived from the **VCTK Corpus** (CSTR, University of Edinburgh — Veaux, Yamagishi & MacDonald), licensed **CC BY 4.0**. Each preview concatenates ~3 utterances per speaker and is transcoded to mono mp3. These files remain under **CC BY 4.0**. <https://datashare.ed.ac.uk/handle/10283/3443> · <https://creativecommons.org/licenses/by/4.0/>
+- **Quicksand** font (`dashboard-react/src/fonts/quicksand-latin.woff2`) — © 2011 The Quicksand Project Authors, licensed under the **SIL Open Font License 1.1** (see `dashboard-react/src/fonts/OFL.txt`).
 - **Praat** (Boersma & Weenink) and **parselmouth** (Jadoul, Thompson & de Boer), both **GPLv3**, power `analyze.py`.
 - Other dependencies (React, Vite, wavesurfer.js, NumPy, …) retain their own respective licenses.
