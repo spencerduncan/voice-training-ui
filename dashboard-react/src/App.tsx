@@ -91,7 +91,7 @@ export function App() {
     <div className="wrap">
       <header className="hero">
         <h1>
-          <TulipIcon title="Voice Garden" /> Voice Garden
+          <TulipIcon /> Voice Garden
         </h1>
         <p>a cozy place to watch your voice bloom 🌱✨</p>
         {active && (
