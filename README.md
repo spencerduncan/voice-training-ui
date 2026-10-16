@@ -20,6 +20,8 @@ If you don't know what a coding agent is or how to do this, DM me. I will see ab
 
 `dashboard-react/public/audio/` and `dashboard-react/public/analysis/` ship **empty on purpose** — only a `.gitkeep` placeholder is in each. Those two folders and `recordings.json` are gitignored, so your takes and their measurements stay local and won't ride along if you commit or push this repo.
 
+**Takes, audio, analysis JSON and annotation entries are local and never committed** — that's `recordings.json` (both copies), `dashboard-react/public/audio/`, `dashboard-react/public/analysis/`, and the per-take insight files in `dashboard-react/src/annotations/entries/` (only `_example.tsx` is tracked).
+
 One caveat if you cloned rather than downloaded: `recordings.json` and its `dashboard-react/public/` mirror are tracked as empty `[]` starters, and git keeps following a file once it's tracked — gitignore only applies to files git isn't already watching. So the log of your takes (labels, notes, numbers — not the audio) can still land in a commit. If you'd rather git forgot those two files entirely, run this once:
 
 ```

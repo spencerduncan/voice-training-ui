@@ -38,3 +38,7 @@ dashboard-react/public/analysis/*
 !dashboard-react/public/analysis/.gitkeep
 # matches both the root source-of-truth and the dashboard-react/public mirror
 recordings.json
+# per-take insights Claude authors from your recordings — personal too. Only
+# the template is tracked.
+dashboard-react/src/annotations/entries/*
+!dashboard-react/src/annotations/entries/_example.tsx

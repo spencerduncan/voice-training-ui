@@ -38,6 +38,12 @@ Refresh the dashboard. Then author that take's insight by following the
 `analyze-voice` skill — copy `dashboard-react/src/annotations/entries/_example.tsx`
 to `00N.tsx` (matching the new recording's id) and fill in the slots.
 
+**Takes, audio, analysis JSON and annotation entries are local and never committed.**
+`recordings.json` (both copies), `public/audio/`, `public/analysis/` and
+`src/annotations/entries/<NNN>.tsx` are gitignored (only `_example.tsx` and the `.gitkeep`s
+are tracked). The two `recordings.json` starters are still tracked as `[]`, so stage files by
+name — never `git add -A` — when committing code changes.
+
 **Ownership note:** this guide and the skill were written for the original user
 ("Rachel"). Treat "the user" as whoever you're working with now — keep the same
 warm, *compass-not-judge* tone and all the conventions below.
