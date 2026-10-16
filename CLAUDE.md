@@ -165,9 +165,11 @@ voice shape.
 
 - **`src/components/WaveformPlayer.tsx`** — uses `@wavesurfer/react`'s `WavesurferPlayer`
   component. **Generic props** `{ src, duration?, downloadName? }` (not a `Recording`), so it
-  plays *any* clip — Rachel's takes **and** the reference voices. Rendered by `RecordingCard`
-  (`<WaveformPlayer src={r.audio} duration={r.duration_s} downloadName={…} />`) and by the
-  **reference-comparison modal** (see its section below). An `audioBus` module singleton keeps
+  plays *any* clip — Rachel's takes **and** the reference voices. Recording cards use
+  **`LazyWaveformPlayer`**: the same pill with a placeholder wave, which mounts the real
+  player (and starts playing, handing it focus) only on the first tap — so the page doesn't
+  fetch and decode every take's audio up front. The **reference-comparison modal** (see its
+  section below) mounts `WaveformPlayer` directly when a dot or tick is clicked. An `audioBus` module singleton keeps
   only one player playing at a time across the whole app.
 - **Layout:** a soft `lav-bg` rounded pill (CSS under `.player` in `index.css`) holding a
   gradient pink→lavender play/pause button, the waveform, an `m:ss / m:ss` time readout, and
@@ -410,8 +412,23 @@ viz inside one entry. `entries/_example.tsx` is the reference example (the templ
 
 ### Recording selector
 `App.tsx` tracks an `active` recording (defaults to latest). A pill switcher (shown with
-2+ recordings) and clicking a card in "All recordings" set it. The active recording drives
-the top sections + which annotation file loads.
+2+ recordings) and each card's **"view ↑" button** in "All recordings" (the number + label,
+`aria-current` on the one showing) set it; nothing else on a card selects, and presses inside
+a card's player never bubble out. Selecting from a card scrolls back up to the take heading
+and focuses it. The choice lives in the URL hash (`#take=N`, via `replaceState`) and is read
+on load, so a refresh or a shared link opens the same take; an unknown id falls back to the
+latest. The active recording drives the top sections + which annotation file loads.
+
+### Loading, errors and the empty garden
+`src/data.ts` is the fetch boundary. `loadRecordings()` runs every entry through
+`normalizeRecording()`: missing objects (`pitch`, `formants`, …) get null-valued defaults,
+optional fields stay `undefined` (so "older analysis" is still detectable), and an entry
+with no usable id or a duplicate id is dropped and listed in a visible "take #N couldn't be
+read" note. The app distinguishes **loading / error / ready**, so "no recordings yet" never
+shows beside an error; a 404 (or the dev server's HTML fallback) means no takes yet. With
+zero takes the Trends and All-recordings sections hide and one welcome card shows the exact
+analyzer command. `<App/>` sits inside a top-level `ErrorBoundary` (`components/ErrorBoundary.tsx`,
+the same one the slots and the contour use), so a crash shows a gentle card, never a blank page.
 
 ---
 

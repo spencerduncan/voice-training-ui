@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Recording, ReferenceVoice } from "./types";
+import { loadRecordings, loadReferences, type Unreadable } from "./data";
 import {
   PITCH_ZONES,
   F2_ZONES,
@@ -38,43 +39,90 @@ import {
   BulbIcon,
 } from "./components/icons";
 
+// The selected take lives in the URL hash (#take=N), so a reload or a shared
+// link opens the same take. Anything else in the hash is ignored.
+function takeFromHash(): number | null {
+  const m = /(?:^#|&)take=(\d+)/.exec(window.location.hash);
+  return m ? Number(m[1]) : null;
+}
+
+const prefersReducedMotion = () =>
+  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+
+type Load =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "ready"; recordings: Recording[]; unreadable: Unreadable[] };
+
 export function App() {
-  const [recordings, setRecordings] = useState<Recording[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [load, setLoad] = useState<Load>({ status: "loading" });
+  const [selectedId, setSelectedId] = useState<number | null>(takeFromHash);
   const [references, setReferences] = useState<ReferenceVoice[]>([]);
   // which metric's reference modal is open + the card rect it grew from
   const [modal, setModal] = useState<{ key: MetricKey; rect: DOMRect } | null>(
     null,
   );
+  // the "This take" heading — selection from the cards below scrolls back here
+  const takeHeading = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
-    fetch(`${import.meta.env.BASE_URL}recordings.json?t=${Date.now()}`)
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
+    let alive = true;
+    loadRecordings()
+      .then((d) => {
+        if (alive) setLoad({ status: "ready", ...d });
       })
-      .then((data: Recording[]) =>
-        setRecordings([...data].sort((a, b) => a.id - b.id)),
-      )
-      .catch((e) => setError(String(e)));
+      .catch((e: unknown) => {
+        if (alive)
+          setLoad({
+            status: "error",
+            message: e instanceof Error ? e.message : String(e),
+          });
+      });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   // reference voices (real men/women) — degrade gracefully if missing.
   useEffect(() => {
-    fetch(`${import.meta.env.BASE_URL}reference.json?t=${Date.now()}`)
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data: ReferenceVoice[]) =>
-        setReferences(Array.isArray(data) ? data : []),
-      )
-      .catch(() => setReferences([]));
+    let alive = true;
+    loadReferences().then((refs) => {
+      if (alive) setReferences(refs);
+    });
+    return () => {
+      alive = false;
+    };
   }, []);
+
+  // follow hand-edited hashes and back/forward between #take= links
+  useEffect(() => {
+    const onHash = () => setSelectedId(takeFromHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  const select = (id: number, scrollToTake = false) => {
+    setSelectedId(id);
+    // replaceState: switching takes shouldn't pile up history entries, and it
+    // doesn't fire hashchange (so no loop with the listener above)
+    window.history.replaceState(null, "", `#take=${id}`);
+    if (scrollToTake) {
+      const h = takeHeading.current;
+      h?.focus({ preventScroll: true });
+      h?.scrollIntoView({
+        behavior: prefersReducedMotion() ? "auto" : "smooth",
+        block: "start",
+      });
+    }
+  };
 
   const openModal = (key: MetricKey, rect: DOMRect) => setModal({ key, rect });
 
-  const R = recordings ?? [];
+  const R = load.status === "ready" ? load.recordings : [];
+  const unreadable = load.status === "ready" ? load.unreadable : [];
   const latest = R.length ? R[R.length - 1] : null;
-  // the recording currently in focus (defaults to the latest)
+  // the recording currently in focus (defaults to the latest; a #take= for a
+  // take that doesn't exist falls back to the latest too)
   const active =
     (selectedId != null ? R.find((r) => r.id === selectedId) : null) ?? latest;
   const pz = active ? zoneOf(PITCH_ZONES, active.pitch.mean_hz) : null;
@@ -103,12 +151,43 @@ export function App() {
         )}
       </header>
 
-      {error && (
-        <div className="empty">
-          couldn't load recordings 🌧️
+      {load.status === "loading" && (
+        <div className="empty">gathering your takes… 🌱</div>
+      )}
+
+      {load.status === "error" && (
+        <div className="empty empty-error" role="alert">
+          couldn't load your recordings 🌧️
           <br />
-          {error}
+          {load.message}
+          <br />
+          <span className="empty-hint">
+            your takes are safe — check that the dashboard is running from{" "}
+            <code>dashboard-react/</code> and that <code>recordings.json</code>{" "}
+            is intact, then refresh.
+          </span>
         </div>
+      )}
+
+      {unreadable.length > 0 && (
+        <div className="data-note" role="status">
+          🌧️{" "}
+          {unreadable.map((u, i) => (
+            <span key={i}>
+              {i > 0 && " · "}
+              <b>{u.label}</b> couldn't be read ({u.reason})
+            </span>
+          ))}
+          {R.length > 0 && (
+            <> — {unreadable.length === 1 ? "it's" : "they're"} left out below</>
+          )}
+          . Re-running the analyzer on {unreadable.length === 1 ? "it" : "them"}{" "}
+          usually fixes this.
+        </div>
+      )}
+
+      {load.status === "ready" && R.length === 0 && unreadable.length === 0 && (
+        <WelcomeCard />
       )}
 
       {/* recording switcher */}
@@ -119,7 +198,8 @@ export function App() {
             <button
               key={r.id}
               className={active && r.id === active.id ? "active" : ""}
-              onClick={() => setSelectedId(r.id)}
+              aria-current={active && r.id === active.id ? "true" : undefined}
+              onClick={() => select(r.id)}
             >
               #{r.id} · {r.label}
               {latest && r.id === latest.id ? " 🌟" : ""}
@@ -134,7 +214,7 @@ export function App() {
 
           {/* 🎀 This take */}
           <section>
-            <h2 className="section-title">
+            <h2 className="section-title" ref={takeHeading} tabIndex={-1}>
               <BowIcon /> {isLatest ? "Latest take" : `Take #${active.id}`}
             </h2>
             <p className="take-hint">
@@ -340,7 +420,9 @@ export function App() {
         </AnnotationsProvider>
       )}
 
-      {/* 📈 Trends over time (across all recordings) */}
+      {/* 📈 Trends over time (across all recordings) — hidden until there's
+          at least one take; the welcome card covers the empty garden */}
+      {R.length > 0 && (
       <section>
         <h2 className="section-title">
           <TrendsIcon /> Trends over time
@@ -393,31 +475,26 @@ export function App() {
           />
         </div>
       </section>
+      )}
 
       {/* 📖 All recordings */}
-      <section>
-        <h2 className="section-title">
-          <CardsIcon /> All recordings
-        </h2>
-        <div className="rec-grid">
-          {R.length === 0 ? (
-            <div className="empty">
-              no recordings yet 🌸
-              <br />
-              run the analyzer to plant your first one!
-            </div>
-          ) : (
-            [...R].reverse().map((r) => (
-              <SelectableRecording
+      {R.length > 0 && (
+        <section>
+          <h2 className="section-title">
+            <CardsIcon /> All recordings
+          </h2>
+          <div className="rec-grid">
+            {[...R].reverse().map((r) => (
+              <RecordingCard
                 key={r.id}
                 r={r}
                 current={r.id === active?.id}
-                onSelect={() => setSelectedId(r.id)}
+                onSelect={() => select(r.id, true)}
               />
-            ))
-          )}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* 💡 Cheat sheet */}
       <section>
@@ -448,43 +525,25 @@ export function App() {
   );
 }
 
-// Wrapper that makes an "All recordings" card click-to-select. The keyboard /
-// screen-reader path is the real <button> on the card's number + label (see
-// RecordingCard); this wrapper only adds a bigger mouse target, so it carries
-// no role or tabindex and never nests one control inside another. The card
-// contains a whole WaveformPlayer (play button, seekable waveform, volume
-// slider, download link), so any press that starts inside the player is left
-// alone; otherwise scrubbing take #2 would switch the dashboard onto take #2.
-function SelectableRecording({
-  r,
-  current,
-  onSelect,
-}: {
-  r: Recording;
-  current: boolean;
-  onSelect: () => void;
-}) {
-  // a drag on the volume slider or the waveform can release elsewhere and still
-  // land a click on this wrapper, so remember where the press actually began
-  // (the select button handles its own clicks, so skip those here too)
-  const startedInPlayer = useRef(false);
-  const inPlayer = (t: EventTarget | null) =>
-    t instanceof Element && t.closest(".player, .rec-pick") != null;
-
+// The empty garden: one welcoming card with the exact command that plants the
+// first take. Shown only when recordings.json loaded fine and holds nothing.
+function WelcomeCard() {
   return (
-    <div
-      className="rec-select"
-      title="click to view this take above"
-      onPointerDownCapture={(e) => {
-        startedInPlayer.current = inPlayer(e.target);
-      }}
-      onClick={(e) => {
-        if (startedInPlayer.current || inPlayer(e.target)) return;
-        onSelect();
-      }}
-    >
-      <RecordingCard r={r} current={current} onSelect={onSelect} />
-    </div>
+    <section className="welcome">
+      <h2>🌸 Welcome to your Voice Garden</h2>
+      <p>
+        Nothing planted yet — let's grow your first take. Record yourself
+        reading something (the Rainbow Passage is a lovely start), then from the
+        project folder run:
+      </p>
+      <pre>
+        <code>uv run analyze.py "/path/to/recording.mp3" --label "what you were practicing"</code>
+      </pre>
+      <p>
+        Refresh this page and your take blooms right here, with trends and a
+        place for Claude to write you a personal insight. 💕
+      </p>
+    </section>
   );
 }
 

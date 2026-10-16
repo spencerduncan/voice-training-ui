@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import WavesurferPlayer from "@wavesurfer/react";
 import type WaveSurfer from "wavesurfer.js";
 import Hover from "wavesurfer.js/dist/plugins/hover.esm.js";
@@ -47,9 +47,84 @@ interface PlayerProps {
   duration?: number | null;
   /** filename suggested when downloading */
   downloadName?: string;
+  /** what's playing, for the play button's accessible name ("take 3") */
+  label?: string;
+  /** start playing as soon as the audio is decoded, and take focus — used
+   *  when the lazy player below swaps itself for the real one on a tap */
+  autoPlay?: boolean;
 }
 
-export function WaveformPlayer({ src, duration, downloadName }: PlayerProps) {
+const PlayIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+    <path d="M4.5 2.8 L13 8 L4.5 13.2 Z" fill="currentColor" />
+  </svg>
+);
+
+const DownloadLink = ({ url, name }: { url: string; name: string }) => (
+  <a
+    className="dl"
+    href={url}
+    download={name}
+    aria-label="Download this voice sample"
+    title="Download this voice sample"
+  >
+    <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 3 V14 M8 10 L12 14 L16 10"
+        stroke="currentColor"
+        strokeWidth="2"
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M5 17 V18.5 A1.5 1.5 0 0 0 6.5 20 H17.5 A1.5 1.5 0 0 0 19 18.5 V17"
+        stroke="currentColor"
+        strokeWidth="2"
+        fill="none"
+        strokeLinecap="round"
+      />
+    </svg>
+  </a>
+);
+
+// A player that costs nothing until it's wanted. Every recording card used to
+// mount a full wavesurfer instance, which fetches and decodes the whole audio
+// file up front — with a few dozen takes that's a lot of work for audio nobody
+// pressed play on. This renders the same pill (play button, a quiet wave
+// placeholder, the known duration, the download link) and only swaps in the
+// real WaveformPlayer on the first tap, which then starts playing by itself.
+export function LazyWaveformPlayer(props: PlayerProps) {
+  const [armed, setArmed] = useState(false);
+  if (!props.src) return null;
+  if (armed) return <WaveformPlayer {...props} autoPlay />;
+  const url = `${import.meta.env.BASE_URL}${props.src}`;
+  const ext = props.src.split(".").pop() || "m4a";
+  return (
+    <div className="player is-idle">
+      <button
+        className="play"
+        aria-label={props.label ? `Play ${props.label}` : "Play"}
+        onClick={() => setArmed(true)}
+      >
+        <PlayIcon />
+      </button>
+      <div className="wave wave-idle" aria-hidden="true" />
+      <div className="time">
+        0:00 <span>/ {fmtTime(props.duration ?? 0)}</span>
+      </div>
+      <DownloadLink url={url} name={`${props.downloadName ?? "voice-sample"}.${ext}`} />
+    </div>
+  );
+}
+
+export function WaveformPlayer({
+  src,
+  duration,
+  downloadName,
+  label,
+  autoPlay = false,
+}: PlayerProps) {
   const [ws, setWs] = useState<WaveSurfer | null>(null);
   const [playing, setPlaying] = useState(false);
   const [cur, setCur] = useState(0);
@@ -71,14 +146,26 @@ export function WaveformPlayer({ src, duration, downloadName }: PlayerProps) {
     [],
   );
 
+  const playBtn = useRef<HTMLButtonElement>(null);
+  // a lazily-mounted player replaces the button that was just tapped, so hand
+  // focus to its own play button rather than dropping it on <body>
+  useEffect(() => {
+    if (autoPlay) playBtn.current?.focus();
+  }, [autoPlay]);
+
   const onReady = useCallback(
     (w: WaveSurfer) => {
       setWs(w);
       setDur(w.getDuration() || duration || 0);
       w.setVolume(vol);
       setPlaying(false);
+      // the tap that armed us is the user gesture; if the browser still says
+      // no, the button simply stays on "play"
+      if (autoPlay) w.play()?.catch(() => {});
     },
-    [duration, vol],
+    // vol is only the starting volume — re-running this on a volume change
+    // would restart playback
+    [duration, autoPlay],
   );
 
   if (!src) return null;
@@ -88,8 +175,9 @@ export function WaveformPlayer({ src, duration, downloadName }: PlayerProps) {
   return (
     <div className="player">
       <button
+        ref={playBtn}
         className="play"
-        aria-label={playing ? "Pause" : "Play"}
+        aria-label={`${playing ? "Pause" : "Play"}${label ? ` ${label}` : ""}`}
         onClick={() => ws?.playPause()}
       >
         {playing ? (
@@ -98,9 +186,7 @@ export function WaveformPlayer({ src, duration, downloadName }: PlayerProps) {
             <rect x="9.4" y="2.5" width="3.6" height="11" rx="1.4" fill="currentColor" />
           </svg>
         ) : (
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M4.5 2.8 L13 8 L4.5 13.2 Z" fill="currentColor" />
-          </svg>
+          <PlayIcon />
         )}
       </button>
 
@@ -155,31 +241,7 @@ export function WaveformPlayer({ src, duration, downloadName }: PlayerProps) {
         />
       </div>
 
-      <a
-        className="dl"
-        href={url}
-        download={`${downloadName ?? "voice-sample"}.${ext}`}
-        aria-label="Download this voice sample"
-        title="Download this voice sample"
-      >
-        <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M12 3 V14 M8 10 L12 14 L16 10"
-            stroke="currentColor"
-            strokeWidth="2"
-            fill="none"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M5 17 V18.5 A1.5 1.5 0 0 0 6.5 20 H17.5 A1.5 1.5 0 0 0 19 18.5 V17"
-            stroke="currentColor"
-            strokeWidth="2"
-            fill="none"
-            strokeLinecap="round"
-          />
-        </svg>
-      </a>
+      <DownloadLink url={url} name={`${downloadName ?? "voice-sample"}.${ext}`} />
     </div>
   );
 }

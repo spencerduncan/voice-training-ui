@@ -296,12 +296,6 @@ section {
   grid-template-columns: 1fr;
   gap: 14px;
 }
-/* click-to-select wrapper around each recording card (a mouse convenience —
-   the keyboard path is the .rec-pick button on the card's number + label) */
-.rec-select {
-  cursor: pointer;
-  border-radius: var(--radius);
-}
 .rec-pick {
   display: flex;
   align-items: center;
@@ -322,10 +316,6 @@ button.rec-pick {
 button.rec-pick:focus-visible {
   outline: var(--focus-ring);
   outline-offset: 2px;
-}
-/* inside the player the cursor belongs to the player's own controls */
-.rec-select .player {
-  cursor: default;
 }
 .rec {
   background: var(--card);
@@ -1310,4 +1300,118 @@ a.legend-link {
   width: 12px;
   height: 12px;
   border-radius: 50%;
+}
+
+/* ---- load states: error / unreadable takes / the empty-garden welcome ---- */
+.empty-error {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 2px solid #fff;
+  padding: 32px 20px;
+  margin-top: 8px;
+}
+.empty-hint {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12.5px;
+}
+.empty code,
+.welcome code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.92em;
+}
+.crash-reload {
+  margin-top: 14px;
+  font: inherit;
+  font-weight: 700;
+  color: #b06a96;
+  background: var(--pink-bg);
+  border: 2px solid var(--pink-soft);
+  border-radius: 999px;
+  padding: 7px 16px;
+  cursor: pointer;
+}
+.crash-reload:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+.data-note {
+  background: var(--lav-bg);
+  border: 1.5px solid #e9e1ff;
+  border-radius: 14px;
+  padding: 10px 14px;
+  margin: 4px 0 12px;
+  font-size: 13px;
+  color: var(--ink);
+}
+.welcome {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 2px solid #fff;
+  padding: 24px 24px 20px;
+  text-align: center;
+}
+.welcome h2 {
+  margin: 0 0 8px;
+  font-size: 21px;
+  color: #b06a96;
+}
+.welcome p {
+  margin: 0 auto 12px;
+  max-width: 560px;
+  font-size: 14px;
+  color: var(--ink);
+}
+.welcome pre {
+  margin: 0 auto 14px;
+  max-width: 100%;
+  overflow-x: auto;
+  text-align: left;
+  background: var(--lav-bg);
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 13px;
+  color: #7a5a92;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* the take heading takes focus when a card below selects it (so keyboard
+   users land where the page scrolled to); it's a heading, not a control */
+.section-title:focus {
+  outline: none;
+}
+
+/* ---- recording cards: current take + explicit "view" control ---- */
+.rec.is-current {
+  border-color: var(--pink);
+}
+.rec-view {
+  margin-left: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #b06a96;
+  background: var(--pink-bg);
+  border: 1.5px solid var(--pink-soft);
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+.rec.is-current .rec-view {
+  background: linear-gradient(135deg, var(--pink-soft), var(--lav-soft));
+  border-color: transparent;
+}
+/* idle (not yet loaded) player: a quiet wave placeholder at the real height */
+.player .wave-idle {
+  height: 42px;
+  background: repeating-linear-gradient(
+      90deg,
+      #d9cbf3 0 2.5px,
+      transparent 2.5px 4.1px
+    )
+    center / 100% 10px no-repeat;
+  border-radius: 3px;
+  opacity: 0.8;
 }
