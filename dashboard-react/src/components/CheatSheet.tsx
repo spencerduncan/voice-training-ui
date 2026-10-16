@@ -152,7 +152,8 @@ export function CheatSheet({ references = [] }: { references?: ReferenceVoice[] 
             Higher = clearer.
           </p>
           <div className="guide">
-            <ZoneGuide zones={HNR_ZONES} unit=" dB" />
+            <ZoneGuide zones={HNR_ZONES} unit=" dB" /> (on a full passage; real
+            studio voices avg ~12)
           </div>
           <div className="tip">
             💗 A <i>little</i> breathiness can read feminine, but too much loses
@@ -169,8 +170,9 @@ export function CheatSheet({ references = [] }: { references?: ReferenceVoice[] 
             cycle-to-cycle. Lower = steadier, more controlled.
           </p>
           <div className="guide">
-            jitter: <ZoneGuide zones={JITTER_ZONES} unit="%" /> &nbsp;|&nbsp;
-            shimmer: steady &lt;3.8%
+            jitter: <ZoneGuide zones={JITTER_ZONES} unit="%" /> (real studio
+            voices avg ~2.2) &nbsp;|&nbsp; shimmer: no trustworthy number for
+            read speech, so we just show it
           </div>
           <div className="tip">
             💗 Steadiness improves with warm-ups &amp; not straining. If these
@@ -203,9 +205,14 @@ export function CheatSheet({ references = [] }: { references?: ReferenceVoice[] 
         </div>
 
         <p className="gloss-note">
-          🌸 Honest note: jitter, shimmer &amp; HNR norms come from sustained
-          vowels, so on a full passage like the Rainbow they'll look "worse" than
-          the textbook numbers — that's normal. Use them to spot{" "}
+          🌸 Honest note: the jitter/shimmer/HNR numbers you'll find quoted
+          almost everywhere come from a <i>held vowel</i> in a clinic, and
+          they're screening lines for voice disorders — not targets for anyone's
+          speech. The bands above are calibrated instead on{" "}
+          <b>a full read passage</b>, from the same 21 real studio-recorded
+          voices behind the resonance zones, so they describe the thing you
+          actually do here. Shimmer has no trustworthy passage-level number at
+          all, so it's shown without a target. Use all three to spot{" "}
           <b>your own trend</b> over time, not as pass/fail. And remember: every
           metric is a hint, not a verdict. How your voice <i>feels</i> and how
           listeners <i>read</i> it are the real goals. 💗

@@ -76,18 +76,47 @@ export const SD_ZONES: Zone[] = [
   { from: 40, to: 80, color: FEM, name: "expressive" },
 ];
 
-// HNR — clarity vs. breathiness. (Running speech reads lower than a held vowel.)
+// HNR — clarity vs. breathiness, on a full read passage.
+//
+// REFERENCE-GROUNDED on **VCTK American speakers** (same corpus + same
+// `analyze()` as F2/F3/weight): n = 17 female, 4 male.
+//   HNR: FEMALE mean 12.41 dB (9.42…15.68) · MALE mean 9.83 dB (8.96…11.26)
+//
+// The previous bands ("clear" = 18 dB+) came from the sustained-vowel figure in
+// the Praat manual — "a healthy speaker can produce a SUSTAINED [a] or [i] with
+// a harmonicity of around 20 dB". That is a *held vowel* in a clinic, not
+// connected speech: **0 of the 21 studio-recorded reference voices reach 18 dB**
+// (the highest is 15.68), so the old top band was unreachable here and the
+// middle band swallowed everyone. Re-cut on the reference set: the low edge (9)
+// sits just under the female range and at the bottom of the male range; the top
+// edge (14) is where the clearest reference voices land.
+//
+// NOT a gendered cue (the sexes overlap heavily and it's a skill/technique
+// metric), so the low end is GROW, never blue.
 export const HNR_ZONES: Zone[] = [
-  { from: 0, to: 10, color: GROW, name: "breathy" },
-  { from: 10, to: 18, color: BUTTER, name: "clear-ish" },
-  { from: 18, to: 35, color: FEM, name: "clear", goal: true },
+  { from: 0, to: 9, color: GROW, name: "breathy" },
+  { from: 9, to: 14, color: BUTTER, name: "typical" },
+  { from: 14, to: 35, color: FEM, name: "clear", goal: true },
 ];
 
-// Jitter — cycle-to-cycle steadiness. LOWER is better, so steady end is pink.
+// Jitter — cycle-to-cycle steadiness. LOWER is steadier, so that end is pink.
+//
+// REFERENCE-GROUNDED on the same **VCTK American** set (n = 17 female, 4 male):
+//   jitter: FEMALE mean 2.03 % (1.41…2.95) · MALE mean 2.92 % (2.62…3.33)
+//
+// The previous bands ("steady" = <1 %, "rough" = 2 %+) were the MDVP clinical
+// line — the Praat manual cites "1.040% as a threshold for pathology" — which is
+// a sustained-vowel *pathology screen*, not a speech target. Measured on a read
+// passage it mislabels clean studio speech: **0 of the 21 reference voices are
+// below 1 %, and 13 of 21 would have been called "rough"**. Re-cut so the
+// reference range spans the bands rather than piling into the worst one, and
+// renamed "rough" → "unsteady" (it's a wobble, not a diagnosis).
+//
+// NOT a gendered cue — the high end is GROW, never blue.
 export const JITTER_ZONES: Zone[] = [
-  { from: 0, to: 1, color: FEM, name: "steady", goal: true },
-  { from: 1, to: 2, color: BUTTER, name: "okay" },
-  { from: 2, to: 6, color: GROW, name: "rough" },
+  { from: 0, to: 1.5, color: FEM, name: "steady", goal: true },
+  { from: 1.5, to: 2.5, color: BUTTER, name: "typical" },
+  { from: 2.5, to: 6, color: GROW, name: "unsteady" },
 ];
 
 // Vocal weight via **corrected H1*–A3*** (Iseli–Alwan 2007 source spectral tilt,

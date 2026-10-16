@@ -220,8 +220,8 @@ export function App() {
                 sub={
                   <>
                     lower = steadier · shimmer{" "}
-                    {fmt(active.voice_quality.shimmer_pct)}% (under ~3.8% is
-                    steady)
+                    {fmt(active.voice_quality.shimmer_pct)}% — tracked, not
+                    scored
                   </>
                 }
               />
