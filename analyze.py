@@ -1059,6 +1059,13 @@ def next_free_id(recordings: list[dict]) -> int:
     return max(stored, max(ids_in_use(recordings), default=0) + 1)
 
 
+def _by_id(entry: dict) -> float:
+    """Sort key: by take number; a hand-broken entry without one sorts last
+    instead of crashing the save."""
+    rec_id = entry.get("id")
+    return rec_id if isinstance(rec_id, int) else math.inf
+
+
 def describe(entry: dict) -> str:
     return f"#{entry.get('id')} “{entry.get('label', '')}” ({entry.get('date') or 'no date'})"
 
@@ -1250,7 +1257,7 @@ def add_take(args: argparse.Namespace) -> None:
         "register": register,
     }
     recordings.append(entry)
-    recordings.sort(key=lambda r: r["id"])
+    recordings.sort(key=_by_id)
     save_recordings(recordings)
 
     print_summary(metrics, register)
@@ -1484,7 +1491,7 @@ def import_garden(src: Path) -> None:
         top = max(new_ids)
         reserve_id(max(top, (meta_in.get("next_id", 1) if isinstance(meta_in, dict) else 1) - 1))
         recordings.extend(new)
-        recordings.sort(key=lambda r: r["id"])
+        recordings.sort(key=_by_id)
         save_recordings(recordings)
     same = len(incoming) - len(new)
     print(f"📥 Imported {len(new)} take(s)"
@@ -1513,30 +1520,66 @@ def backfill(register_floor: float | None = None,
     default, which is exactly what this re-derives; a floor that was set
     explicitly with --register-floor on a newer entry (floor_mode "absolute")
     is kept.
+
+    All or nothing per take, and nothing half-written overall: every take is
+    measured first, its detail written under a temp name (.<id>.json.backfill);
+    only then is recordings.json saved and the details renamed into place. An
+    interruption before that point leaves the old files exactly as they were.
+    A take that fails (missing audio, unreadable, too short) is reported and
+    keeps its old numbers; the run carries on and exits non-zero at the end.
     """
     recordings = load_recordings()
     if not recordings:
         raise TakeError("No recordings to backfill.")
     ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
-    for entry in recordings:
-        src = AUDIO_DIR / Path(entry["audio"]).name
-        if not src.exists():
-            print(f"⚠️  #{entry['id']}: audio not found ({src}) — skipped")
-            continue
-        old = entry.get("register") or {}
-        floor = register_floor
-        if floor is None and old.get("floor_mode") == "absolute":
-            floor = old.get("floor_hz")
-        metrics, detail, register = measure_file(src, floor, formant_ceiling)
-        entry.update(metrics)
-        entry["register"] = register
-        entry["analyzer_version"] = ANALYZER_VERSION
-        entry["analyzed_at"] = now_iso()
-        write_detail(entry["id"], detail)
-        print(f"✅ #{entry['id']} backfilled — weight {entry['weight']}")
-    recordings.sort(key=lambda r: r["id"])
-    save_recordings(recordings)
-    print("🌸 Backfill complete.")
+    staged: list[tuple[Path, Path]] = []  # (temp detail, final detail)
+    updated: dict[int, dict] = {}  # index in recordings -> re-measured entry
+    failed: list[str] = []
+    try:
+        for i, entry in enumerate(recordings):
+            rec_id = entry.get("id")
+            try:
+                audio = entry.get("audio")
+                if not isinstance(rec_id, int) or not isinstance(audio, str):
+                    raise TakeError("the entry has no take number or no audio path")
+                src = AUDIO_DIR / Path(audio).name
+                if not src.is_file():
+                    raise TakeError(f"its audio is missing ({rel(src)})")
+                old = entry.get("register") or {}
+                floor = register_floor
+                if floor is None and old.get("floor_mode") == "absolute":
+                    floor = old.get("floor_hz")
+                metrics, detail, register = measure_file(src, floor, formant_ceiling)
+                final = ANALYSIS_DIR / f"{rec_id}.json"
+                tmp = final.with_name(f".{final.name}.backfill")
+                tmp.write_text(json.dumps(detail), encoding="utf-8")
+                staged.append((tmp, final))
+            except Exception as e:  # noqa: BLE001 — one bad take mustn't stop the rest
+                failed.append(f"#{rec_id}: {e}")
+                print(f"⚠️  #{rec_id} not re-measured: {e}")
+                continue
+            updated[i] = {**entry, **metrics, "register": register,
+                          "detail": f"analysis/{rec_id}.json",
+                          "analyzer_version": ANALYZER_VERSION, "analyzed_at": now_iso()}
+            print(f"✅ #{rec_id} re-measured — pitch ~{metrics['pitch']['mean_hz']} Hz, "
+                  f"in-register {register['in_register_pct']}%")
+        # ---- commit: recordings.json, then the details ------------------------
+        for i, entry in updated.items():
+            recordings[i] = entry
+        if updated:
+            recordings.sort(key=_by_id)
+            save_recordings(recordings)
+            for tmp, final in staged:
+                os.replace(tmp, final)
+            staged.clear()
+    finally:
+        for tmp, _ in staged:  # interrupted or failed before the commit
+            tmp.unlink(missing_ok=True)
+    print(f"🌸 Backfill: {len(updated)} of {len(recordings)} take(s) re-measured with analyzer "
+          f"{ANALYZER_VERSION}.")
+    if failed:
+        raise TakeError(f"{len(failed)} take(s) couldn't be re-measured and kept their old "
+                        "numbers:\n   " + "\n   ".join(failed))
 
 
 # Which options each command reads; anything else given alongside it is an error
