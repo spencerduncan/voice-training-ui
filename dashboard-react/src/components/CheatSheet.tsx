@@ -104,13 +104,6 @@ export function CheatSheet({ references = [] }: { references?: ReferenceVoice[] 
             💗 To raise it: think "light &amp; forward," let your voice float up
             a touch. Don't force it from the throat.
           </div>
-          <div className="tip">
-            🌸 Worth keeping in your pocket: <b>p294</b>, one of the reference
-            women in this app, speaks at <b>164 Hz</b> with an F2 of{" "}
-            <b>1396 Hz</b> — she reads <i>neutral</i> on both of these gauges,
-            and she's a cis woman who was just reading sentences in a studio.
-            Nothing about her voice needed fixing. Compasses, not judges. 💗
-          </div>
         </div>
 
         <div className="gloss-item">

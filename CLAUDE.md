@@ -268,8 +268,8 @@ and the one place the reference pipeline lives (edit it there, not ad hoc).
   point** — the top of the gender-ambiguous range, where resonance starts doing the deciding —
   not a threshold a voice crosses. The `note.pitch` slot is therefore **conditioned on F2**: it
   only says "reads feminine" when F2 is in its bright band too. Keep it that way.
-  The grounding fact worth repeating (it's in the cheat sheet): reference speaker **VCTK p294
-  is a cis woman at 164 Hz mean F0 with F2 1396 Hz — "neutral" on *both* of this app's gauges.**
+  Don't hard-code single reference speakers as anecdotes in the UI or docs: their means can be
+  measurement artefacts (p294's 164 Hz, for one, is dragged down by phrase-final creak).
 - **Resonance (formants F1/F2/F3)** — the "vocal-tract size / brightness" cue; what makes
   a voice read light independent of pitch. Often the biggest lever after pitch. F1 is
   vowel-driven, not a reliable gender cue alone. **Now vowel-targeted** (in

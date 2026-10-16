@@ -71,7 +71,6 @@ Find the **1–3 most important, most actionable** things — beat generic advic
 - **Pitch.** Mean vs the ~165 Hz **inflection point** — the top of the gender-ambiguous range,
   not a threshold a voice crosses. Read it *next to F2*: f0 and formants are heard together
   (Hillenbrand & Clark 2009), so only call a take "reads feminine" when both are bright.
-  Reference speaker p294 is a cis woman at 164 Hz / F2 1396 Hz — "neutral" on both gauges.
   In-register melody flat (< ~2 st) or healthy (~3–4 st)?
 - **Resonance.** F2/F3 deeper/neutral/bright (`zones.ts`). Often the biggest lever after pitch.
 - **Voice quality.** Excess breathiness (low HNR) or strain (high jitter/shimmer).
