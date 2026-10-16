@@ -10,6 +10,7 @@ import {
   HNR_ZONES,
   JITTER_ZONES,
   WEIGHT_ZONES,
+  WEIGHT_DIRECTION,
   F2_ZONES,
   F3_ZONES,
 } from "./zones";
@@ -35,7 +36,8 @@ export interface MetricDef {
   // value for a web reference voice (null if that metric isn't measured)
   ref: (v: ReferenceVoice) => number | null | undefined;
   // whether reference (real men's/women's) ticks are meaningful here.
-  // gendered metrics (pitch, weight) → show refs; skill/non-gendered → her only.
+  // gendered metrics (pitch, F2, F3) → show refs; skill/non-gendered → her
+  // only. Weight is her own trend only until the measure is validated.
   showRefs: boolean;
   // one-line framing shown in the modal header
   blurb: string;
@@ -99,8 +101,8 @@ export const METRICS: Record<MetricKey, MetricDef> = {
     hi: 20,
     take: (r) => r.weight?.h1a3c_db ?? null,
     ref: (v) => v.weight.h1a3c_db,
-    showRefs: true,
-    blurb: "source spectral tilt (corrected H1*–A3*) · lighter leans feminine — but weight doesn't gender-separate reliably, so watch your OWN change over time",
+    showRefs: false,
+    blurb: `source spectral tilt (corrected H1*–A3*) · ${WEIGHT_DIRECTION} · read it as your own trend; the measure is still being validated, so no reference voices here`,
   },
   f2: {
     key: "f2",

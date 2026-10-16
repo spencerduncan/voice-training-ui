@@ -128,28 +128,27 @@ export const JITTER_ZONES: Zone[] = [
 ];
 
 // Vocal weight via **corrected H1*–A3*** (Iseli–Alwan 2007 source spectral tilt,
-// dB; voiced-gated). This is the *source* (vocal folds) measured independent of
-// the vocal-tract filter — the formant-correction step removes resonance, which
-// is what the old alpha ratio was accidentally re-measuring. NOTE the direction
-// FLIPPED vs the old alpha ratio: a SMALLER value = steeper source roll-off =
-// LIGHTER (feminine); a LARGER value = flatter source = HEAVIER (masculine). So
-// the FEM band is now the LOW end, MASC the HIGH end.
+// dB; voiced-gated) — the *source* (vocal folds) with the vocal-tract filter
+// corrected out. Shown as the user's **OWN TREND ONLY**, not a gendered scale:
 //
-// REFERENCE-GROUNDED on **VCTK American** via `build_reference_set.py` (n = 17
-// female, 4 male): FEMALE mean ~9 dB (5…14) · MALE mean ~13 dB (7…16) — ~4 dB
-// apart, female lighter. Direction: lower = lighter/feminine.
+//   · The measure isn't validated yet. The Oct 2026 review found it unstable
+//     (creak frames and formant mistracking swing a take by several dB) and the
+//     direction unsettled: arithmetically a steeper source roll-off gives a
+//     LARGER H1*–A3* (see the analyzer docstring), yet on the VCTK reference set
+//     the women average LOWER (~9.1 vs ~12.5 dB, only n = 4 men).
+//   · So: neutral GROW/BUTTER colours (never MASC blue or FEM pink), direction
+//     names instead of "light"/"heavy" verdicts, no goal band, and no male/
+//     female reference ticks in the modal (`showRefs: false` in metrics.ts).
 //
-// ⚠️ WEIGHT DOESN'T SCALE WELL AS A GENDER CUE. The male sample is tiny (n=4)
-// and the M/F ranges overlap heavily (plenty of women reach into the "heavy"
-// range); a separate mixed-corpus sample showed almost NO separation at all. So
-// treat the M/F bands as loose orientation only — weight is best read as **your
-// OWN change over time across your samples**, not a vs-other-people verdict. The
-// `note.weight` slot says this to the user. Only the direction (lower = lighter)
-// is reliable.
+// The cut points are only there to give the bar some texture; they are not
+// targets. Every UI sentence about direction reads WEIGHT_DIRECTION, so if the
+// validation work settles the sign the other way, it changes in one place.
+export const WEIGHT_DIRECTION = "lower = lighter and airier, higher = heavier";
+
 export const WEIGHT_ZONES: Zone[] = [
-  { from: 0, to: 10, color: FEM, name: "light", goal: true },
-  { from: 10, to: 12.5, color: BUTTER, name: "overlap" },
-  { from: 12.5, to: 20, color: MASC, name: "heavy" },
+  { from: 0, to: 10, color: GROW, name: "lighter" },
+  { from: 10, to: 12.5, color: BUTTER, name: "mid" },
+  { from: 12.5, to: 20, color: GROW, name: "heavier" },
 ];
 
 // In-register melody (semitones SD, register crashes removed). Expressiveness,

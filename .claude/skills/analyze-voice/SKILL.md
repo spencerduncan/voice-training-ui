@@ -73,6 +73,10 @@ Find the **1–3 most important, most actionable** things — beat generic advic
   (Hillenbrand & Clark 2009), so only call a take "reads feminine" when both are bright.
   In-register melody flat (< ~2 st) or healthy (~3–4 st)?
 - **Resonance.** F2/F3 deeper/neutral/bright (`zones.ts`). Often the biggest lever after pitch.
+- **Weight** (`weight.h1a3c_db`). Her own trend only: compare with her earlier takes, never
+  with other voices, and don't call it feminine or masculine. The measure is still being
+  validated (direction wording lives in `WEIGHT_DIRECTION` in `zones.ts`), so don't make it
+  the lead finding.
 - **Voice quality.** Excess breathiness (low HNR) or strain (high jitter/shimmer).
 - **Her stated `--label` goal** — speak to it directly.
 

@@ -118,7 +118,7 @@ export function ResonanceCard({ r, onExpand, references = [] }: ResonanceCardPro
         . Resonance is partly something you shape and partly the size
         of what you're shaping, so if this number finds a level and stays there,
         that's information — not something to force. It's one cue of several:
-        melody, weight, and how you land phrase endings are all still doing real
+        melody and how you land phrase endings are still doing real
         work. 💗
       </div>
       <div className="res-f1">

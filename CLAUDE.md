@@ -199,8 +199,8 @@ many audio samples as reference points** — instantly answering "where do I sit
   keeps each anchored. The currently-selected take is highlighted pink + enlarged.
 - **Web reference voices** as smaller **pink (female `FEM`) / blue (male `MASC`)** ticks below
   the bar — STRICT color rule. Shown only on **gendered** metrics (`showRefs: true` →
-  Pitch, Weight, F2, F3); non-gendered ones (Loudness, HNR, jitter) show her
-  takes only, with a legend note.
+  Pitch, F2, F3); non-gendered ones (Loudness, HNR, jitter) and Weight (own trend only, still
+  being validated) show her takes only, with a legend note.
 - A **legend** + the lo/hi axis. The scale auto-stretches lo/hi so every value fits.
 
 **Click a dot or a reference tick → a `WaveformPlayer` opens below the scale** and plays that
@@ -237,10 +237,10 @@ the reference ticks above.
   runtime (cache-busted) like `recordings.json`; the app **degrades gracefully** to `[]` if missing.
 - **`public/reference-audio/vctk_<g><id>.mp3`** — previews for the in-modal player: each
   speaker's ~3 measured clips **concatenated** with 0.35 s gaps (≈10–18 s), mono, 96 kbps.
-- **What the data says:** pitch separates the sexes cleanly (F≈210 Hz vs M≈108 Hz); **weight
-  (corrected H1\*–A3\*) separates them ~3.5 dB** (F mean 9.06 vs M mean 12.51 dB; smaller =
-  lighter/feminine) — a real but imperfect cue (some overlap remains), and a big improvement on
-  the old alpha ratio's ~1 dB. See `WEIGHT_ZONES` in `zones.ts`.
+- **What the data says:** pitch separates the sexes cleanly (F≈210 Hz vs M≈108 Hz). Weight
+  (corrected H1\*–A3\*) means differ (F 9.06 vs M 12.51 dB) but with only 4 men, a direction
+  opposite to the published literature, and a measure the review found unstable, so the app
+  does **not** use it as a gender cue (see Weight below). `reference.json` still stores it.
 
 **How to (re)generate:** `uv run scripts/build_reference_set.py` — the committed generator
 and the one place the reference pipeline lives (edit it there, not ad hoc).
@@ -280,22 +280,25 @@ and the one place the reference pipeline lives (edit it there, not ad hoc).
   formant-stable. On VCTK this separates F2 much better than the old frame-average (women
   ~1450 vs men ~1281) though the ranges still **overlap at the edges** (female min 1280 vs
   male max 1325), and F3 similarly (~2742 vs ~2523). See `F2_ZONES`/`F3_ZONES`.
-- **Weight (vocal heaviness via source spectral tilt)** — one of the *big three* fem cues,
-  alongside pitch and resonance. It's the voice **source** (the vocal folds themselves) vs.
+- **Weight (vocal heaviness via source spectral tilt)** — a candidate cue alongside pitch and
+  resonance, **shown as her own trend only** until it's validated. It's the voice **source** (the vocal folds themselves) vs.
   resonance, which is the **filter** (the vocal tract). Measured as **corrected H1\*–A3\***
   (`h1a3c_db`, the Iseli–Alwan 2007 source-tilt measure as used in VoiceSauce, in
   `analyze.py`'s `spectral_weight()`): on **voiced frames only**, the amplitude of the harmonic
   near F0 (H1) minus the harmonic near F3 (A3), each **formant-corrected** (each of F1–F3
   modeled as a pole + bandwidth, its boost subtracted) so it isolates the *source* from the
   *filter*. The formant correction is the whole point — uncorrected H1–A3 just re-measures
-  resonance, which was the old alpha ratio's bug. **Direction (verified on VCTK): smaller =
-  lighter & airier (feminine), larger = heavier/pressed (masculine)** — the OPPOSITE of the
-  old alpha ratio. It's a difference of two harmonic amplitudes, so it's largely
-  **gain-independent** → comparable across recordings, unlike absolute loudness. Zones are
-  reference-grounded against real male/female voices (see `WEIGHT_ZONES` in `zones.ts`), where
-  it separates the sexes by ~3.5 dB (F mean 9.06 vs M mean 12.51) — much better than the old
-  alpha's ~1 dB. `h1a3_db` (uncorrected H1–A3) and `tilt_db_khz` (LTAS slope) are stored too
-  as cheap secondaries.
+  resonance, which was the old alpha ratio's bug. It's a difference of two harmonic amplitudes,
+  so it's largely **gain-independent** → comparable across recordings, unlike absolute loudness.
+  **Not validated yet:** the Oct 2026 review found creak frames and formant mistracking swing a
+  take by several dB, and the direction is unsettled (arithmetically a steeper roll-off gives a
+  *larger* value, yet the reference women average *lower*). So the dashboard treats it as
+  **her own trend only**: `WEIGHT_ZONES` use neutral GROW/BUTTER with direction names
+  (lighter / mid / heavier), no goal band, **no MASC blue or FEM pink**, and `showRefs: false`
+  (no male/female ticks). Every UI sentence about direction reads `WEIGHT_DIRECTION` in
+  `zones.ts` ("lower = lighter and airier, higher = heavier"), so a settled sign changes in
+  one place. Don't call weight feminine/masculine in annotations either. `h1a3_db`
+  (uncorrected H1–A3) and `tilt_db_khz` (LTAS slope) are stored too as cheap secondaries.
 - **Register & phrasing** — the deep layer. Pitch isn't just an average; it's a *contour*.
   We detect where the voice **crashes out of register** (below a floor, default 130 Hz,
   back toward chest voice) and where those crashes cluster within a phrase. Trailing-off

@@ -7,6 +7,7 @@ import {
   HNR_ZONES,
   JITTER_ZONES,
   WEIGHT_ZONES,
+  WEIGHT_DIRECTION,
   MELODY_ZONES,
   zoneOf,
   goalOf,
@@ -249,10 +250,10 @@ export function App() {
                 sub={
                   <Note id="note.weight">
                     source spectral tilt (corrected H1*–A3*) — the <i>thickness</i>{" "}
-                    of the voice itself (separate from pitch & resonance) · lighter
-                    leans feminine. <b>Heads up:</b> weight is hard to pin to a
-                    gender across people (lots of overlap), so it's most useful as{" "}
-                    <b>your own change over time</b>, not a vs-others verdict.
+                    of the voice itself, separate from pitch &amp; resonance ·{" "}
+                    {WEIGHT_DIRECTION}. Read it as <b>your own trend</b>; the
+                    measure is still being validated, so it isn't compared with
+                    anyone else's voice.
                   </Note>
                 }
               />
@@ -358,7 +359,7 @@ export function App() {
           />
           <ChartCard
             h="Weight"
-            cap="spectral tilt · lower = lighter / more feminine"
+            cap={`spectral tilt · ${WEIGHT_DIRECTION} · your own trend`}
             color="#cf7fb0"
             data={mk((r) => r.weight?.h1a3c_db ?? null)}
             bands={WEIGHT_ZONES}

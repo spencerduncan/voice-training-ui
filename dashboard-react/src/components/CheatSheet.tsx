@@ -9,6 +9,7 @@ import {
   HNR_ZONES,
   JITTER_ZONES,
   WEIGHT_ZONES,
+  WEIGHT_DIRECTION,
   goalOf,
   type Zone,
 } from "../zones";
@@ -204,18 +205,20 @@ export function CheatSheet({ references = [] }: { references?: ReferenceVoice[] 
             near your pitch (H1) minus the harmonic near F3 (A3), each{" "}
             <b>formant-corrected</b> so it isolates the <b>source</b> (your vocal
             folds, how they vibrate) from the <b>filter</b> (the shape of your
-            throat &amp; mouth). A steeper roll-off — a <i>smaller</i> H1*–A3* —
-            reads lighter &amp; more feminine; a flatter, larger value reads
-            heavier. Gain-independent, so it's truly <i>comparable take-to-take</i>{" "}
-            (unlike raw loudness dB).
+            throat &amp; mouth). Here, {WEIGHT_DIRECTION}. It's a difference of
+            two harmonics, so it compares across takes better than raw loudness
+            dB. This measure is <b>still being validated</b> — it wobbles with
+            creaky or mistracked frames — so it's shown as <b>your own trend</b>{" "}
+            only, with no target and no comparison to other voices.
           </p>
           <div className="guide">
-            <ZoneGuide zones={WEIGHT_ZONES} unit=" dB" /> (smaller = lighter)
+            <ZoneGuide zones={WEIGHT_ZONES} unit=" dB" /> (your own trend, no
+            target)
           </div>
           <div className="tip">
-            💗 To lighten: let the folds come together gently — easy, breath-flowy
-            tone, never pressed or squeezed. Lighter is the reliable direction;
-            there's no magic number.
+            💗 If you're working on a lighter voice: let the folds come together
+            gently — easy, breath-flowy tone, never pressed or squeezed. Trust
+            how it feels and sounds over this number.
           </div>
         </div>
 
