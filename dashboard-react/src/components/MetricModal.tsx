@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FiVolume2 } from "react-icons/fi";
 import type { Recording, ReferenceVoice } from "../types";
-import type { MetricDef } from "../metrics";
+import { METRICS, type MetricDef } from "../metrics";
 import { MASC, FEM, fmt } from "../zones";
 import { WaveformPlayer } from "./WaveformPlayer";
 
@@ -37,6 +37,13 @@ interface Selected {
 }
 
 const clampPct = (p: number) => Math.min(100, Math.max(0, p));
+
+// Which metrics actually carry male/female reference ticks. Derived from the
+// registry (not hand-listed) so the legend can never drift when a metric's
+// `showRefs` flips in metrics.ts.
+const REF_METRIC_TITLES = Object.values(METRICS)
+  .filter((m) => m.showRefs)
+  .map((m) => m.title);
 
 // vertical spacing for stacked take markers (px)
 const TAKE_ROW = 22; // height of one stack lane
@@ -452,7 +459,9 @@ export function MetricModal({
             </>
           ) : (
             <span className="mm-legend-note">
-              reference voices shown on gendered metrics (Pitch, Weight)
+              {REF_METRIC_TITLES.length > 0
+                ? `reference voices show on the gendered metrics — ${REF_METRIC_TITLES.join(" · ")}`
+                : "just your own takes here"}
             </span>
           )}
         </div>

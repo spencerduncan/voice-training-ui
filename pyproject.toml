@@ -1,7 +1,7 @@
 [project]
 name = "voice-training"
 version = "0.1.0"
-description = "Add your description here"
+description = "Voice Garden — acoustic analysis behind a cozy voice-feminization training tracker (pitch, resonance, weight, register & phrasing)"
 requires-python = ">=3.13"
 dependencies = [
     "numpy>=2.5.0",

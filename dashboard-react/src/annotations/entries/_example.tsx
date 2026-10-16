@@ -29,7 +29,7 @@ import { fmt } from "../../zones";
  *
  * AVAILABLE SLOTS:
  *   Override notes (replace a built-in woven note; default shows if you omit it):
- *     note.pitch · note.loudness · note.resonance · note.register
+ *     note.pitch · note.loudness · note.weight · note.resonance · note.register
  *   Freeform insertion regions (render nothing unless you fill them):
  *     region.top · region.afterLatest · region.afterResonance ·
  *     region.afterRegister · region.insights (the main one) · region.bottom

@@ -84,7 +84,7 @@ everything else falls back to shared defaults (this is what keeps it DRY).
 Each slot is `(ctx) => ReactNode` where `ctx = { recording, detail }` (`detail` may be null
 while loading — guard it). Slot kinds:
 - **Override slots** (`note.*`) replace a woven-in default note. Available: `note.pitch`,
-  `note.loudness`, `note.resonance`, `note.register`.
+  `note.loudness`, `note.weight`, `note.resonance`, `note.register`.
 - **Insertion slots** (`region.*`) drop in freeform content; empty by default. Available:
   `region.top`, `region.afterLatest`, `region.afterResonance`, `region.afterRegister`,
   `region.insights` (put the main insight here), `region.bottom`.
