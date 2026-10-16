@@ -604,13 +604,18 @@ def analyze(sound: parselmouth.Sound,
     # and creak runs (creak_frames(), the register model's rule) are dropped —
     # not the raw min/max, which one tracker octave jump or one creaky frame
     # decides. min_hz/max_hz/range_hz carry these same values.
-    p5 = p95 = None
+    # sd_hz is the SD over those same cleaned frames (Praat's formula: sample SD,
+    # n - 1, over frames); Praat's own SD over every voiced frame, octave jumps
+    # and creak included, is kept as sd_raw_hz (it was sd_hz before 2.0.0).
+    p5 = p95 = sd_clean = None
     if len(voiced_f0):
         med = float(np.median(voiced_f0))
         kept = (voiced & ~creak_frames(pitch, med)
                 & (f0_track <= OCTAVE_UP_RATIO * med) & (f0_track >= OCTAVE_DOWN_RATIO * med))
         if kept.any():
             p5, p95 = (float(v) for v in np.percentile(f0_track[kept], [5, 95]))
+        if kept.sum() >= 2:
+            sd_clean = float(np.std(f0_track[kept], ddof=1))
 
     # ---- Formants (resonance) + weight: both read the same vowel nuclei ----
     nuclei = vowel_nuclei(sound, pitch, intensity, formant)
@@ -646,7 +651,8 @@ def analyze(sound: parselmouth.Sound,
             "min_hz": clean(p5),
             "max_hz": clean(p95),
             "range_hz": clean(p95 - p5) if p5 is not None and p95 is not None else None,
-            "sd_hz": clean(sd_f0),
+            "sd_hz": clean(sd_clean),
+            "sd_raw_hz": clean(sd_f0),
             "p5_hz": clean(p5),
             "p95_hz": clean(p95),
         },

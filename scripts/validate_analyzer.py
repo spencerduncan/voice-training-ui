@@ -187,6 +187,7 @@ def measure(sound: parselmouth.Sound) -> dict:
         "pitch_max_hz": p.get("max_hz"),
         "pitch_range_hz": p.get("range_hz"),
         "pitch_sd_hz": p.get("sd_hz"),
+        "pitch_sd_raw_hz": p.get("sd_raw_hz"),
         "f1_hz": f.get("f1_hz"),
         "f2_hz": f.get("f2_hz"),
         "f3_hz": f.get("f3_hz"),
@@ -252,9 +253,9 @@ def print_table(rows: list[dict]) -> None:
 
 
 DELTA_KEYS = [
-    "pitch_p5_hz", "pitch_p95_hz", "pitch_range_hz", "f2_hz", "f3_hz", "formant_ceiling_hz",
-    "n_vowel_frames", "h1a3c_db", "intensity_mean_db", "floor_hz", "in_register_pct",
-    "phrases_landed_pct", "n_phrases", "in_register_semitones_sd",
+    "pitch_p5_hz", "pitch_p95_hz", "pitch_range_hz", "pitch_sd_hz", "f2_hz", "f3_hz",
+    "formant_ceiling_hz", "n_vowel_frames", "h1a3c_db", "intensity_mean_db", "floor_hz",
+    "in_register_pct", "phrases_landed_pct", "n_phrases", "in_register_semitones_sd",
 ]
 
 
