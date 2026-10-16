@@ -91,7 +91,7 @@ export function LineChart({ points, color = "#b06a96", band, bandColor, bands }:
           x={pad.l - 6}
           y={(y(v) + 3).toFixed(1)}
           fontSize="9"
-          fill="#9d8ba8"
+          fill="#7a6889"
           textAnchor="end"
         >
           {Math.round(v)}
@@ -126,7 +126,7 @@ export function LineChart({ points, color = "#b06a96", band, bandColor, bands }:
           x={x(i).toFixed(1)}
           y={H - 7}
           fontSize="9"
-          fill="#9d8ba8"
+          fill="#7a6889"
           textAnchor="middle"
         >
           #{p.label}

@@ -97,7 +97,7 @@ export function App() {
         {active && (
           <div className="latest-banner">
             🌸 <b>#{active.id}</b> &middot; {active.label} &middot;{" "}
-            <span style={{ color: "#9d8ba8" }}>{active.date}</span>
+            <span style={{ color: "#7a6889" }}>{active.date}</span>
           </div>
         )}
       </header>
