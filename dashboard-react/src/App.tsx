@@ -4,7 +4,6 @@ import {
   PITCH_ZONES,
   F2_ZONES,
   LOUD_ZONES,
-  SD_ZONES,
   HNR_ZONES,
   JITTER_ZONES,
   WEIGHT_ZONES,
@@ -187,15 +186,24 @@ export function App() {
                 }
               />
               <StatCard
+                title="Melody"
+                value={active.register?.in_register_semitones_sd ?? null}
+                unit="st"
+                zones={MELODY_ZONES}
+                lo={0}
+                hi={7}
+                metricKey="melody"
+                onExpand={openModal}
+                sub="how much your pitch moves while you're up in register, in semitones — the ear's unit, so it doesn't drift with how high you sit 🎶"
+              />
+              {/* Hz variability is informational only — no zones, no verdict.
+                  Hz SD rises with mean pitch, so it can't tell melody apart from
+                  simply speaking higher. See the note in zones.ts. */}
+              <StatCard
                 title="Pitch variability"
                 value={active.pitch.sd_hz}
                 unit="Hz"
-                zones={SD_ZONES}
-                lo={0}
-                hi={60}
-                metricKey="sd"
-                onExpand={openModal}
-                sub="how much your melody moves · ~20–40 Hz is lively, natural speech"
+                sub="the same movement measured in Hz · this one grows as your pitch rises, so it's a number to watch, not a score"
               />
               <StatCard
                 title="Clarity (HNR)"
@@ -324,7 +332,7 @@ export function App() {
           />
           <ChartCard
             h="In-register melody"
-            cap="true expressiveness, crashes removed (st)"
+            cap="pitch movement in semitones, above-floor time only"
             color="#9b7ad0"
             data={mk((r) => r.register?.in_register_semitones_sd ?? null)}
             bands={MELODY_ZONES}

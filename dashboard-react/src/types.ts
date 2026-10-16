@@ -38,8 +38,10 @@ export interface Weight {
 export interface Register {
   floor_hz: number;
   in_register_pct: number | null;
-  semitones_sd: number | null; // raw pitch variation (inflated by crashes)
-  in_register_semitones_sd: number | null; // true in-register melody
+  semitones_sd: number | null; // pitch variation over all voiced frames (st)
+  // same, over frames above the floor only. Always <= semitones_sd: it's the
+  // same set minus its low tail, so the gap is arithmetic, not a melody verdict.
+  in_register_semitones_sd: number | null;
   onset_sub_pct: number | null; // % sub-register at phrase starts
   mid_sub_pct: number | null; // ...middles
   offset_sub_pct: number | null; // ...endings (usually worst)

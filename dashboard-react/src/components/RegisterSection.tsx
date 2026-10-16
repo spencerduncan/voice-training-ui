@@ -77,17 +77,23 @@ export function RegisterSection() {
           </div>
         </div>
 
+        {/* Both numbers, no "true" vs "inflated" framing: the in-register SD is
+            computed over the same frames minus the ones below the floor, and
+            dropping a distribution's low tail always shrinks its SD. So the gap
+            is arithmetic, not evidence about the melody — it just tracks how
+            much time went below the floor (the card to the left). */}
         <div className="stat">
           <div className="label">
-            <span>True melody</span>
+            <span>Melody in register</span>
           </div>
           <div className="value">
             {fmt(reg.in_register_semitones_sd)}
             <small> st</small>
           </div>
           <div className="sub">
-            in-register pitch variation. Raw looks like {fmt(reg.semitones_sd)} st, but the extra is
-            register crashes, not melody — this is the honest number.
+            pitch movement across the time you were above the floor. Over <i>all</i> voiced time
+            it's {fmt(reg.semitones_sd)} st — that one counts the dips too, so it always reads a
+            little wider.
           </div>
         </div>
       </div>

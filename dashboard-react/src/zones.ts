@@ -69,12 +69,20 @@ export const LOUD_ZONES: Zone[] = [
   { from: 65, to: 78, color: "#ffd9ea", name: "strong" },
 ];
 
-// SD of pitch — how much your melody moves. Higher = more expressive.
-export const SD_ZONES: Zone[] = [
-  { from: 0, to: 20, color: GROW, name: "flat" },
-  { from: 20, to: 40, color: BUTTER, name: "natural", goal: true },
-  { from: 40, to: 80, color: FEM, name: "expressive" },
-];
+// Pitch variability in **Hz** deliberately has NO zone bands. (There used to be
+// a SD_ZONES here: flat <20 / natural 20–40 / expressive 40+, top band pink.)
+//
+// Hz SD is confounded with mean pitch — SD_Hz ≈ mean_F0 · 0.0578 · SD_semitones —
+// so the SAME melodic movement (2.8 st, say) measures 17.8 Hz at a 110 Hz mean
+// and 40.5 Hz at a 250 Hz mean. It would have graded one voice "flat" and the
+// other "expressive" for doing the identical thing. Traunmüller & Eriksson
+// (1995) report no significant sex difference in SD once it's expressed in
+// semitones, while in Hz the women's value comes out higher in every case they
+// list. Our own `public/reference.json` agrees: female mean 43.5 Hz vs male
+// 40.9 Hz, and 2 of the 4 male speakers landed in the old pink "expressive"
+// band. A number that mostly restates how high a voice sits can't carry an
+// expressiveness verdict, so the Hz card is informational only — the verdict
+// lives on MELODY_ZONES below, in semitones.
 
 // HNR — clarity vs. breathiness, on a full read passage.
 //
