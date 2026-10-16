@@ -290,8 +290,12 @@ and the one place the reference pipeline lives (edit it there, not ad hoc).
   "lively prosody" is often a mirage of register breaks, not real expression.
 - **Loudness, HNR (clarity/breathiness), jitter/shimmer (steadiness)** — supporting cues.
 
-Caveat to remember: jitter/shimmer/HNR norms come from sustained vowels, so on a full
-passage they read "worse" than textbook — use them as *her own trend*, not pass/fail.
+Caveat to remember: the textbook jitter/shimmer/HNR norms are sustained-vowel clinical
+screens that no read passage reaches, so the app doesn't use them. `HNR_ZONES` and
+`JITTER_ZONES` in `zones.ts` are **reference-grounded on the VCTK read passages** (HNR breathy
+<9 · typical 9–14 · clear 14 dB+; jitter steady <1.5 · typical 1.5–2.5 · unsteady 2.5 %+), and
+shimmer has no trustworthy passage-level threshold, so it's shown without a zone. They're skill
+cues, not gender cues — still read them as *her own trend*, not pass/fail.
 
 ---
 

@@ -51,23 +51,31 @@ function ZoneGuide({
   );
 }
 
-// Mean F2 of the shipped reference voices (public/reference.json), so the
-// "real women average ~X" aside can't drift from the corpus either. Returns
+// Means of the shipped reference voices (public/reference.json), so the
+// "real voices average ~X" asides can't drift from the corpus either. Returns
 // null when reference.json didn't load — then we simply say nothing.
-function meanF2(refs: ReferenceVoice[], gender: "f" | "m"): number | null {
+function refMean(
+  refs: ReferenceVoice[],
+  get: (r: ReferenceVoice) => number | null | undefined,
+  gender?: "f" | "m",
+  digits = 0,
+): number | null {
   const v = refs
-    .filter((r) => r.gender === gender)
-    .map((r) => r.formants.f2_hz)
+    .filter((r) => !gender || r.gender === gender)
+    .map(get)
     .filter((n): n is number => n !== null && n !== undefined);
   if (!v.length) return null;
-  return Math.round(v.reduce((a, b) => a + b, 0) / v.length);
+  const k = 10 ** digits;
+  return Math.round((v.reduce((a, b) => a + b, 0) / v.length) * k) / k;
 }
 
 // Real React collapsible (controlled <details>-style) for the cheat sheet.
 export function CheatSheet({ references = [] }: { references?: ReferenceVoice[] }) {
   const [open, setOpen] = useState(false);
-  const f2f = meanF2(references, "f");
-  const f2m = meanF2(references, "m");
+  const f2f = refMean(references, (r) => r.formants?.f2_hz, "f");
+  const f2m = refMean(references, (r) => r.formants?.f2_hz, "m");
+  const hnrAvg = refMean(references, (r) => r.voice_quality?.hnr_db);
+  const jitAvg = refMean(references, (r) => r.voice_quality?.jitter_pct, undefined, 1);
   return (
     <details className="cheat" open={open}>
       <summary
@@ -152,8 +160,8 @@ export function CheatSheet({ references = [] }: { references?: ReferenceVoice[] 
             Higher = clearer.
           </p>
           <div className="guide">
-            <ZoneGuide zones={HNR_ZONES} unit=" dB" /> (on a full passage; real
-            studio voices avg ~12)
+            <ZoneGuide zones={HNR_ZONES} unit=" dB" /> (on a full passage
+            {hnrAvg !== null && `; real studio voices avg ~${hnrAvg}`})
           </div>
           <div className="tip">
             💗 A <i>little</i> breathiness can read feminine, but too much loses
@@ -170,9 +178,10 @@ export function CheatSheet({ references = [] }: { references?: ReferenceVoice[] 
             cycle-to-cycle. Lower = steadier, more controlled.
           </p>
           <div className="guide">
-            jitter: <ZoneGuide zones={JITTER_ZONES} unit="%" /> (real studio
-            voices avg ~2.2) &nbsp;|&nbsp; shimmer: no trustworthy number for
-            read speech, so we just show it
+            jitter: <ZoneGuide zones={JITTER_ZONES} unit="%" />
+            {jitAvg !== null && ` (real studio voices avg ~${jitAvg})`}{" "}
+            &nbsp;|&nbsp; shimmer: no trustworthy number for read speech, so we
+            just show it
           </div>
           <div className="tip">
             💗 Steadiness improves with warm-ups &amp; not straining. If these
@@ -209,8 +218,9 @@ export function CheatSheet({ references = [] }: { references?: ReferenceVoice[] 
           almost everywhere come from a <i>held vowel</i> in a clinic, and
           they're screening lines for voice disorders — not targets for anyone's
           speech. The bands above are calibrated instead on{" "}
-          <b>a full read passage</b>, from the same 21 real studio-recorded
-          voices behind the resonance zones, so they describe the thing you
+          <b>a full read passage</b>, from the same{" "}
+          {references.length > 0 ? `${references.length} ` : ""}real
+          studio-recorded voices behind the resonance zones, so they describe the thing you
           actually do here. Shimmer has no trustworthy passage-level number at
           all, so it's shown without a target. Use all three to spot{" "}
           <b>your own trend</b> over time, not as pass/fail. And remember: every
