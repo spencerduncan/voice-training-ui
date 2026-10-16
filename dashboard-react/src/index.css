@@ -554,19 +554,20 @@ a.legend-link {
 
 /* ---- gentle voice-care aside (permanent, sits above the footer) ----
    Soft lavender, same quiet register as .res-f1 / .gloss-note. Never red,
-   never blue (blue means masculine register only). */
+   never blue (blue means masculine register only). Body text is --ink at
+   13.5px (5.7:1 on --lav-bg): a stop rule has to be easy to read. */
 .care-note {
   margin-top: 34px;
   background: var(--lav-bg);
   border: 1.5px solid #e9e1ff;
   border-radius: 18px;
   padding: 14px 16px 15px;
-  font-size: 12.5px;
-  color: var(--ink-soft);
+  font-size: 13.5px;
+  color: var(--ink);
 }
 .care-note h3 {
   margin: 0 0 7px;
-  font-size: 13.5px;
+  font-size: 15px;
   color: #7a5a92;
 }
 .care-note ul {

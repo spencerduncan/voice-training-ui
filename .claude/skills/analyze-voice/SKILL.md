@@ -21,6 +21,18 @@ weaknesses, always actionable and kind.
 
 ---
 
+## Voice care comes first
+
+If the `--note`, the user's message, or anything they say mentions **strain, pain, a tight
+or tickly throat, hoarseness, losing the top of the range, or vocal tiredness**, lead with
+rest: tell them kindly to stop for the day, rest and hydrate, and keep the next session
+short and easy. **Do not prescribe more effort** for that take (no "push higher", "louder",
+or extra drills); the insight can still say what the numbers show, framed for next time.
+If hoarseness or a missing top end has lasted **more than 4 weeks**, suggest a
+speech-language pathologist (ideally one who works with trans clients) or a laryngologist,
+as a check-in, not a verdict. This mirrors the always-visible voice-care note in the
+dashboard (`src/components/VoiceCareNote.tsx`).
+
 ## Step 1 — Run the standard analyzer
 
 From the repo root (wherever this checkout lives):
