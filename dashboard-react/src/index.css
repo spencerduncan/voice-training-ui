@@ -12,6 +12,11 @@
   --card: #fffafd;
   --shadow: 0 8px 24px rgba(186, 142, 196, 0.18);
   --radius: 22px;
+  /* one focus indicator for every custom-styled clickable thing: a rose ring
+     that reads clearly on the pale cards without leaving the pastel palette.
+     Rose (not blue) — blue is reserved for masculine register. */
+  --focus-rose: #b06a96;
+  --focus-ring: 3px solid var(--focus-rose);
 }
 * {
   box-sizing: border-box;
@@ -145,7 +150,10 @@ section {
 .fgauge.is-clickable:focus-visible {
   background: var(--pink-bg);
   box-shadow: 0 4px 14px rgba(186, 142, 196, 0.16);
-  outline: none;
+}
+.fgauge.is-clickable:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
 }
 .fgauge-head {
   display: flex;
@@ -263,6 +271,20 @@ section {
   display: grid;
   grid-template-columns: 1fr;
   gap: 14px;
+}
+/* click-to-select wrapper around each recording card (keyboard-operable, so it
+   needs a visible ring of its own — .rec draws the card itself) */
+.rec-select {
+  cursor: pointer;
+  border-radius: var(--radius);
+}
+.rec-select:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 3px;
+}
+/* inside the player the cursor belongs to the player's own controls */
+.rec-select .player {
+  cursor: default;
 }
 .rec {
   background: var(--card);
@@ -685,10 +707,11 @@ a.legend-link {
 .stat.is-clickable:focus-visible {
   transform: translateY(-3px);
   box-shadow: 0 14px 30px rgba(186, 142, 196, 0.28);
-  outline: none;
 }
 .stat.is-clickable:focus-visible {
   border-color: var(--pink);
+  outline: var(--focus-ring);
+  outline-offset: 3px;
 }
 
 /* corner magnify glyph — persistent (visible on touch, no hover needed) */
@@ -792,6 +815,13 @@ a.legend-link {
   padding: 26px 28px 22px;
   transform-origin: var(--ox, 50%) var(--oy, 50%);
   animation: mm-pop 0.34s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+/* the card takes focus on open so the dialog is announced; it's a container,
+   not a control, and the whole screen already changed — no ring needed here.
+   Every actual control inside it keeps its own visible indicator. */
+.mm-card:focus,
+.mm-card:focus-visible {
+  outline: none;
 }
 /* grow up out of the clicked card: scale + fade + lift */
 @keyframes mm-pop {
@@ -1042,8 +1072,13 @@ a.legend-link {
   transform: scaleY(1.25);
   filter: brightness(0.95);
 }
+/* a 2px tick can't show focus by growing — it needs an actual ring */
+.mm-ref.is-clickable {
+  border-radius: 4px;
+}
 .mm-ref.is-clickable:focus-visible {
-  outline: none;
+  outline: var(--focus-ring);
+  outline-offset: 3px;
 }
 .mm-ref.is-playing .mm-ref-stem {
   box-shadow: 0 0 0 2px #fff, 0 0 0 3.5px rgba(176, 106, 150, 0.5);

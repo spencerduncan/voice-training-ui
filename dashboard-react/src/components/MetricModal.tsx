@@ -93,14 +93,74 @@ export function MetricModal({
     );
   };
 
-  // Esc to close
+  // onClose can be a fresh closure each render; keep it in a ref so the
+  // focus-management effect below can run exactly once (on mount/unmount)
+  // without re-stealing focus or re-locking scroll mid-session.
+  const onCloseRef = useRef(onClose);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    onCloseRef.current = onClose;
   }, [onClose]);
+
+  // Focus management + scroll lock, so a keyboard / screen-reader user actually
+  // ends up *inside* the dialog instead of stranded behind it:
+  //   · move focus into the card on open (its aria-label gets announced)
+  //   · trap Tab / Shift+Tab within the card
+  //   · restore focus to whatever opened it (the stat card) on close
+  //   · lock body scroll while it's up
+  // Esc-to-close lives here too, alongside the Tab handling.
+  useEffect(() => {
+    const card = cardRef.current;
+    const prevFocused = document.activeElement as HTMLElement | null;
+    const prevOverflow = document.body.style.overflow;
+
+    document.body.style.overflow = "hidden";
+    card?.focus();
+
+    const FOCUSABLE =
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== "Tab" || !card) return;
+
+      const items = Array.from(
+        card.querySelectorAll<HTMLElement>(FOCUSABLE),
+      ).filter((el) => el.offsetParent !== null || el === document.activeElement);
+      const here = document.activeElement as HTMLElement | null;
+
+      if (items.length === 0) {
+        // nothing tabbable inside — keep focus on the card itself
+        e.preventDefault();
+        card.focus();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      const inside = here != null && card.contains(here);
+
+      if (e.shiftKey) {
+        if (!inside || here === first || here === card) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else if (!inside || here === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+      // the trigger card may have been unmounted (e.g. take switched) — only
+      // hand focus back if it's still on the page
+      if (prevFocused && document.contains(prevFocused)) prevFocused.focus();
+    };
+  }, []);
 
   // Scale: stretch the metric's lo/hi so every real value (takes + refs) fits.
   const { lo, hi } = useMemo(() => {
@@ -190,6 +250,7 @@ export function MetricModal({
         role="dialog"
         aria-modal="true"
         aria-label={`${metric.title} reference scale`}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         <button className="mm-close" onClick={onClose} aria-label="close">

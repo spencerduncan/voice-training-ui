@@ -28,6 +28,14 @@ export function RegisterSection() {
   ];
   const worst = [...positions].sort((a, b) => (b.v ?? 0) - (a.v ?? 0))[0];
 
+  // These three bars exist to be read against *each other*, so the tallest one
+  // sets the scale. (A fixed ×3 pinned anything at or above 33% to full height —
+  // 35 / 60 / 90% drew three identical bars, which is exactly the comparison
+  // this panel is for.) The floor stops a nearly-clean take from rendering a
+  // full-height bar over a percent or two.
+  const peak = Math.max(0, ...positions.map((p) => p.v ?? 0));
+  const scaleMax = Math.max(peak, 10);
+
   return (
     <div className="register">
       <p className="res-desc">
@@ -96,7 +104,7 @@ export function RegisterSection() {
         <div className="posbars">
           {positions.map((p) => {
             const v = p.v ?? 0;
-            const h = Math.max(4, Math.min(100, v * 3));
+            const h = Math.max(4, Math.min(100, (v / scaleMax) * 100));
             return (
               <div className="posbar" key={p.key}>
                 <div className="posbar-track">

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Recording, ReferenceVoice } from "./types";
 import {
   PITCH_ZONES,
@@ -362,14 +362,12 @@ export function App() {
             </div>
           ) : (
             [...R].reverse().map((r) => (
-              <div
+              <SelectableRecording
                 key={r.id}
-                onClick={() => setSelectedId(r.id)}
-                style={{ cursor: "pointer" }}
-                title="click to view this take above"
-              >
-                <RecordingCard r={r} />
-              </div>
+                r={r}
+                current={r.id === active?.id}
+                onSelect={() => setSelectedId(r.id)}
+              />
             ))
           )}
         </div>
@@ -398,6 +396,55 @@ export function App() {
           onClose={() => setModal(null)}
         />
       )}
+    </div>
+  );
+}
+
+// Wrapper that makes an "All recordings" card click-to-select *and* reachable
+// from the keyboard. The card contains a whole WaveformPlayer (play button,
+// seekable waveform, volume slider, download link), so a naked onClick meant
+// scrubbing take #2's waveform or nudging its volume also switched the entire
+// dashboard onto take #2. Any interaction that starts inside the player is
+// therefore left alone; everything else selects.
+function SelectableRecording({
+  r,
+  current,
+  onSelect,
+}: {
+  r: Recording;
+  current: boolean;
+  onSelect: () => void;
+}) {
+  // a drag on the volume slider or the waveform can release elsewhere and still
+  // land a click on this wrapper, so remember where the press actually began
+  const startedInPlayer = useRef(false);
+  const inPlayer = (t: EventTarget | null) =>
+    t instanceof Element && t.closest(".player") != null;
+
+  return (
+    <div
+      className="rec-select"
+      role="button"
+      tabIndex={0}
+      aria-current={current ? "true" : undefined}
+      aria-label={`Show take ${r.id} (${r.label}) in the sections above`}
+      title="click to view this take above"
+      onPointerDownCapture={(e) => {
+        startedInPlayer.current = inPlayer(e.target);
+      }}
+      onClick={(e) => {
+        if (startedInPlayer.current || inPlayer(e.target)) return;
+        onSelect();
+      }}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        // let the play button / slider / download link keep their own keys
+        if (inPlayer(e.target)) return;
+        e.preventDefault();
+        onSelect();
+      }}
+    >
+      <RecordingCard r={r} />
     </div>
   );
 }
