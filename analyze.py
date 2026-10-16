@@ -167,6 +167,15 @@ OCTAVE_DOWN_RATIO = 0.55
 WEIGHT_MIN_F0 = 100.0
 MIN_WEIGHT_FRAMES = 20
 WEIGHT_MAX_FRAMES = 600
+# A take must be at least MIN_TAKE_S long and have MIN_VOICED_FRAMES voiced frames
+# on the register model's 10 ms grid (half a second of voice) before anything is
+# saved. Silence, white/pink/brown noise and a 50 Hz hum give 0-5 voiced frames;
+# a single read sentence gives ~200, the 20-25 s reference previews ~850-1150.
+# Fewer than 50 is also below what melody (MELODY_MIN_FRAMES) needs.
+MIN_TAKE_S = 1.0
+MIN_VOICED_FRAMES = 50
+# --register-floor must be a plausible speaking pitch (Hz).
+REGISTER_FLOOR_RANGE = (50.0, 400.0)
 
 
 def clean(value: float | None) -> float | None:
@@ -208,22 +217,63 @@ def _cleanup_temp_wavs() -> None:
 atexit.register(_cleanup_temp_wavs)
 
 
+class TakeError(Exception):
+    """Something about the request or the audio, said kindly. main() prints it
+    and exits non-zero. Raised before the write phase, nothing has been touched."""
+
+
+FFMPEG_MISSING = ("ffmpeg not found; install it (Windows: winget install Gyan.FFmpeg · "
+                  "macOS: brew install ffmpeg · Linux: sudo apt install ffmpeg), then open "
+                  "a new terminal so it's on PATH.")
+
+
+def run_ffmpeg(src: Path, args: list[str]) -> None:
+    """Run ffmpeg on `src`, turning its failures into a TakeError a person can
+    act on: a missing ffmpeg says how to install it; a file ffmpeg can't read
+    shows the last lines of what ffmpeg said, not a Python traceback."""
+    try:
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                        "-i", str(src), *args], check=True, capture_output=True)
+    except FileNotFoundError:
+        raise TakeError(FFMPEG_MISSING) from None
+    except subprocess.CalledProcessError as e:
+        said = (e.stderr or b"").decode("utf-8", errors="replace").strip().splitlines()
+        tail = "\n   ".join(said[-4:]) or f"(no message; exit code {e.returncode})"
+        raise TakeError(f"ffmpeg couldn't read {src.name}. It said:\n   {tail}") from None
+
+
+def _temp_dir() -> Path:
+    tmp_dir = tempfile.mkdtemp(prefix="voice-garden-")
+    _TEMP_WAV_DIRS.append(tmp_dir)
+    return Path(tmp_dir)
+
+
 def to_wav_mono(src: Path) -> Path:
     """Convert any audio file to a temp mono WAV for analysis via ffmpeg.
 
     The returned path stays valid for the rest of the process; its temp dir is
     removed at exit, so a long run (build_reference_set.py converts ~60 clips)
-    no longer leaves a pile of orphaned directories behind.
+    no longer leaves a pile of orphaned directories behind. ffmpeg problems
+    raise TakeError (see run_ffmpeg()).
     """
-    tmp_dir = tempfile.mkdtemp(prefix="voice-garden-")
-    _TEMP_WAV_DIRS.append(tmp_dir)
-    tmp = Path(tmp_dir) / "analysis.wav"
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", str(src), "-ac", "1", "-ar", "44100", str(tmp)],
-        check=True,
-        capture_output=True,
-    )
+    tmp = _temp_dir() / "analysis.wav"
+    run_ffmpeg(src, ["-ac", "1", "-ar", "44100", str(tmp)])
     return tmp
+
+
+# The dashboard's playback copy of every take: mono mp3 at this bitrate, cover
+# art and metadata (recorder app, location, ...) dropped. A 3-minute stereo 48 kHz
+# WAV is ~35 MB; this is ~2 MB, and voice loses nothing audible.
+PLAYBACK_BITRATE = "96k"
+
+
+def encode_playback(src: Path) -> Path:
+    """A temp mono mp3 of `src` for public/audio/ (see PLAYBACK_BITRATE). Made
+    before anything is written, so an ffmpeg failure leaves no files behind."""
+    out = _temp_dir() / "playback.mp3"
+    run_ffmpeg(src, ["-vn", "-map_metadata", "-1", "-ac", "1",
+                     "-c:a", "libmp3lame", "-b:a", PLAYBACK_BITRATE, str(out)])
+    return out
 
 
 def _intensity(sound: parselmouth.Sound) -> parselmouth.Intensity:
@@ -902,11 +952,6 @@ def now_iso() -> str:
 # so a number is never handed out twice. A reused number would pick up the old
 # take's annotation entry (entries/<NNN>.tsx is matched by id alone).
 
-class TakeError(Exception):
-    """Something about the request or the audio, said kindly. main() prints it
-    and exits non-zero. Raised before the write phase, nothing has been touched."""
-
-
 def rel(path: Path) -> str:
     """`path` relative to the repo root, with forward slashes, for messages."""
     try:
@@ -1072,23 +1117,54 @@ def move_to_trash(files: list[Path], trash: Path) -> list[str]:
     return moved
 
 
+def read_sound(src: Path) -> parselmouth.Sound:
+    """A WAV is read as-is (as it always was); anything else, or a WAV Praat
+    can't read, goes through ffmpeg to a mono 44.1 kHz WAV first."""
+    if src.suffix.lower() == ".wav":
+        try:
+            return parselmouth.Sound(str(src))
+        except parselmouth.PraatError:
+            pass
+    wav = to_wav_mono(src)
+    try:
+        return parselmouth.Sound(str(wav))
+    except parselmouth.PraatError:
+        raise TakeError(f"Couldn't read any audio from {src.name}.") from None
+
+
+def check_usable(src: Path, metrics: dict, detail: dict) -> None:
+    """Refuse a take too short or too silent to measure (see MIN_TAKE_S and
+    MIN_VOICED_FRAMES), before anything is written."""
+    duration = metrics.get("duration_s") or 0.0
+    if duration < MIN_TAKE_S:
+        raise TakeError(f"{src.name} is only {duration:.2f} s long; a take needs at least "
+                        f"{MIN_TAKE_S:g} s of audio. Nothing was saved.")
+    voiced = sum(hz is not None for hz in detail["frames"]["hz"])
+    if voiced < MIN_VOICED_FRAMES:
+        raise TakeError(
+            f"I could hardly hear a voice in {src.name}: {voiced * detail['time_step']:.2f} s of "
+            f"voicing, and a take needs at least {MIN_VOICED_FRAMES * detail['time_step']:g} s. "
+            "Was the mic muted, or the wrong input picked? Nothing was saved.")
+
+
 def measure_file(src: Path, floor: float | None,
                  formant_ceiling: float) -> tuple[dict, dict, dict]:
-    """Read one audio file and run both analyses: (metrics, detail, register)."""
-    wav = to_wav_mono(src) if src.suffix.lower() != ".wav" else src
-    sound = parselmouth.Sound(str(wav))
+    """Read one audio file, run both analyses and check the take is usable:
+    (metrics, detail, register). Raises TakeError; writes nothing."""
+    sound = read_sound(src)
     intensity = _intensity(sound)  # shared by both analyses below
     metrics = analyze(sound, intensity, formant_ceiling)
     detail, register = analyze_register(sound, floor, intensity)
+    check_usable(src, metrics, detail)
     return metrics, detail, register
 
 
-def install_playback(src: Path, rec_id: int) -> str:
-    """Put the dashboard's playback copy of `src` in public/audio/; returns the
-    entry's `audio` path."""
-    name = f"{rec_id:03d}{src.suffix.lower()}"
+def install_playback(playback: Path, rec_id: int) -> str:
+    """Move an encode_playback() file into public/audio/ as <NNN>.mp3; returns
+    the entry's `audio` path."""
+    name = f"{rec_id:03d}{playback.suffix.lower()}"
     AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, AUDIO_DIR / name)
+    shutil.move(str(playback), str(AUDIO_DIR / name))
     return f"audio/{name}"
 
 
@@ -1154,10 +1230,11 @@ def add_take(args: argparse.Namespace) -> None:
 
     print(f"🎧 Analyzing entry #{rec_id}: {src.name} ...")
     metrics, detail, register = measure_file(src, args.register_floor, args.formant_ceiling)
+    playback = encode_playback(src)
 
     # ---- write phase: nothing above has touched a file -----------------------
     reserve_id(rec_id)
-    audio = install_playback(src, rec_id)
+    audio = install_playback(playback, rec_id)
     entry = {
         "id": rec_id,
         "label": args.label,
@@ -1205,6 +1282,7 @@ def replace_take(rec_id: int, args: argparse.Namespace) -> None:
 
     print(f"🎧 Re-analyzing entry #{rec_id} from {src.name} ...")
     metrics, detail, register = measure_file(src, floor, args.formant_ceiling)
+    playback = encode_playback(src)
 
     # ---- write phase ---------------------------------------------------------
     trash = new_trash_dir(f"replaced-take{rec_id:03d}")
@@ -1217,7 +1295,7 @@ def replace_take(rec_id: int, args: argparse.Namespace) -> None:
         "date": args.date if args.date is not None else entry.get("date", ""),
         "source_file": src.name,
         "source_sha256": sha,
-        "audio": install_playback(src, rec_id),
+        "audio": install_playback(playback, rec_id),
         "detail": write_detail(rec_id, detail),
         "analyzer_version": ANALYZER_VERSION,
         "analyzed_at": now_iso(),
@@ -1477,6 +1555,32 @@ _OPTIONS_FOR = {
 _COMMANDS = ("backfill", "delete", "relabel", "replace", "export", "import_zip")
 
 
+def _date_arg(text: str) -> str:
+    """--date: a real calendar date written YYYY-MM-DD (what the trend charts sort by)."""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", text, re.ASCII):
+        raise argparse.ArgumentTypeError(
+            f"write the date as YYYY-MM-DD, e.g. {datetime.now():%Y-%m-%d} (got {text!r})")
+    try:
+        datetime.strptime(text, "%Y-%m-%d")
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text} isn't a real date") from None
+    return text
+
+
+def _floor_arg(text: str) -> float:
+    """--register-floor: Hz, within REGISTER_FLOOR_RANGE."""
+    lo, hi = REGISTER_FLOOR_RANGE
+    try:
+        hz = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"give the floor in Hz, e.g. 140 (got {text!r})") from None
+    if not lo <= hz <= hi:  # also rejects nan
+        raise argparse.ArgumentTypeError(
+            f"{text} Hz isn't a speaking pitch; use {lo:g}-{hi:g} Hz, or leave it out for the "
+            f"take-relative floor ({REGISTER_FLOOR_ST:g} semitones under the take's median)")
+    return hz
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Analyze a voice training recording 🌸",
@@ -1492,10 +1596,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("audio", nargs="?", help="Path to the audio file (mp3/m4a/wav/...)")
     parser.add_argument("--label", help="What you were trying this take")
     parser.add_argument("--note", default=None, help="Optional extra note")
-    parser.add_argument("--date", default=None,
+    parser.add_argument("--date", type=_date_arg, default=None,
                         help="The take's date (YYYY-MM-DD); defaults to today")
     parser.add_argument(
-        "--register-floor", type=float, default=None,
+        "--register-floor", type=_floor_arg, default=None,
         help="Absolute register floor in Hz. Default: relative to the take — "
              f"{REGISTER_FLOOR_ST:g} semitones below its own median pitch. "
              "With --backfill, applies to every recording.",
