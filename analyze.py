@@ -1578,10 +1578,10 @@ def import_garden(src: Path) -> None:
         print(f"⚠️  No audio in the zip for take(s) {', '.join(f'#{i}' for i in missing)}.")
     old = sorted({str(r.get("analyzer_version") or "pre-2.0") for r in new} - {ANALYZER_VERSION})
     if old:
-        print(f"ℹ️  Some imported takes were measured by analyzer {', '.join(old)}; this is "
+        print(f"🌱 Some imported takes were measured by analyzer {', '.join(old)}; this is "
               f"{ANALYZER_VERSION}. Run --backfill to re-measure them all the same way.")
     if any(dest.parent == ENTRIES_DIR for dest, _ in writes):
-        print("ℹ️  Annotation entries are code the dashboard runs: only import zips you made.")
+        print("🔐 Annotation entries are code the dashboard runs: only import zips you made.")
 
 
 def backfill(register_floor: float | None = None,
